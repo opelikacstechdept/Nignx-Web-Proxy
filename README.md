@@ -1,62 +1,84 @@
 # Nginx Web Proxy
 
-An nginx reverse proxy that terminates TLS for `accounts.opelikaschools.org` and forwards traffic to the internal IIS server.
+An nginx reverse proxy that terminates TLS for `accounts.opelikaschools.org` and forwards traffic to the internal IIS server at `https://10.11.1.69:443`.
+
+The image contains two sites:
+
+| Port | Site | Certificate |
+| --- | --- | --- |
+| 80 → 443 | **Production**: `accounts.opelikaschools.org` | Let's Encrypt, mounted from the host |
+| 9000 | **Test**: same backend, for trying things out | Self-signed, created automatically when the container starts |
+
+If no Let's Encrypt cert is mounted, the production site is switched off automatically and the test site on 9000 still runs, so you can test before the real cert exists.
 
 ## Layout
 
 | Path | Purpose |
 | --- | --- |
 | `nginx/Dockerfile` | Image based on `nginx:stable-alpine` |
-| `nginx/conf.d/intranet.conf` | Proxy config: HTTP→HTTPS redirect, TLS, upstream to IIS |
-| `.github/workflows/build-proxy.yml` | Builds the image, runs `nginx -t` against a throwaway cert, then pushes to GHCR |
+| `nginx/conf.d/00-backend.conf` | IIS backend address (shared by both sites) |
+| `nginx/conf.d/intranet.conf` | Production site: HTTP→HTTPS redirect, TLS on 443 |
+| `nginx/conf.d/test-9000.conf` | Test site on 9000 |
+| `nginx/docker-entrypoint.d/05-certs.sh` | Startup: creates the test cert; disables production if its cert is missing |
+| `.github/workflows/build-proxy.yml` | Builds, tests (`nginx -t`) and pushes the image to GHCR |
 
 ## Configuration
 
-- **Backend:** edit the `upstream iis_backend` block in `nginx/conf.d/intranet.conf` (currently `https://10.11.1.69:443`).
-- **Domain:** if you change `server_name` or the cert paths, also update `DOMAIN` in the workflow so the CI config test still matches.
+- **Backend:** edit `nginx/conf.d/00-backend.conf` (currently `10.11.1.69:443`).
+- **Domain:** if you change `server_name` or the cert paths, also update `DOMAIN` in the workflow and in `05-certs.sh`.
 
-## CI / image
+## Automatic builds
 
-On every push to `main` that touches `nginx/**` or the workflow, plus every Monday at 06:00 UTC and on manual dispatch, the workflow publishes:
+Every push to GitHub (any branch) builds the image, checks the config with and without a cert, and pushes it to GHCR. It also rebuilds every Monday at 06:00 UTC to pick up nginx security patches, and can be run by hand from the Actions tab.
 
-- `ghcr.io/opelikacstechdept/nignx-web-proxy/intranet-proxy:latest`
-- `ghcr.io/opelikacstechdept/nignx-web-proxy/intranet-proxy:sha-<short>`
+| Tag | When |
+| --- | --- |
+| `latest` | pushes to `main` |
+| `<branch-name>` | pushes to that branch (`/` becomes `-`) |
+| `sha-<short>` | every build |
 
-## Running
+Image: `ghcr.io/opelikacstechdept/nignx-web-proxy/intranet-proxy`
 
-Certificates are not baked into the image. Mount the host's Let's Encrypt directory read-only:
+## Running (docker compose)
 
-```bash
-docker run -d --name intranet-proxy --restart unless-stopped \
-  -p 80:80 -p 443:443 \
-  -v /etc/letsencrypt:/etc/letsencrypt:ro \
-  ghcr.io/opelikacstechdept/nignx-web-proxy/intranet-proxy:latest
+```yaml
+services:
+  intranet-proxy:
+    image: ghcr.io/opelikacstechdept/nignx-web-proxy/intranet-proxy:latest
+    container_name: intranet-proxy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "9000:9000"   # test site - remove this line to turn it off
+    volumes:
+      - /etc/letsencrypt:/etc/letsencrypt:ro
 ```
 
-After renewing certificates, reload nginx without downtime:
-
 ```bash
-docker exec intranet-proxy nginx -s reload
+docker compose pull && docker compose up -d
 ```
 
-## Test proxy (port 9000)
-
-`test/` holds a standalone test instance that listens on **https port 9000** and forwards to the same IIS backend. It runs in its own container, so it can sit next to production (80/443) without interfering, and it needs no image build or Let's Encrypt cert.
-
-On the proxy server:
+If the package is private, log in once on the server with a GitHub token that has `read:packages`:
 
 ```bash
-cd test
-mkdir -p certs
-openssl req -x509 -nodes -newkey rsa:2048 -days 30 \
-  -subj "/CN=accounts.opelikaschools.org" \
-  -addext "subjectAltName=DNS:accounts.opelikaschools.org" \
-  -keyout certs/test.key -out certs/test.crt
-docker compose up -d
+docker login ghcr.io -u <github-username>
 ```
 
-Then browse to `https://<proxy-server-ip>:9000` and accept the self-signed certificate warning.
+Reload after a cert renewal:
+
+```bash
+docker compose exec intranet-proxy nginx -s reload
+```
+
+## Testing on port 9000
+
+Browse to `https://<proxy-server-ip>:9000` and accept the self-signed certificate warning.
 
 For the most realistic test (cookies, sign-in), add a hosts-file entry on your test PC, `<proxy-server-ip>  accounts.opelikaschools.org`, and browse to `https://accounts.opelikaschools.org:9000`. Remove the entry afterwards.
 
-Logs: `docker logs -f intranet-proxy-test` · Stop: `docker compose down`
+Startup messages, including whether production is enabled:
+
+```bash
+docker logs intranet-proxy | grep 05-certs
+```
