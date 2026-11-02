@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Proxy Test Page</title>
+<style>
+  :root { --bg:#f6f7f9; --card:#fff; --text:#1d2330; --muted:#5d6676; --line:#dde1e7;
+          --ok:#1a7f37; --warn:#9a6700; --bad:#cf222e; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#14171c; --card:#1d2128; --text:#e6e9ee; --muted:#9aa3b2; --line:#2e343e;
+            --ok:#3fb950; --warn:#d29922; --bad:#f85149; }
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; font:16px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif; background:var(--bg); color:var(--text); }
+  main { max-width:760px; margin:0 auto; padding:32px 16px; }
+  h1 { font-size:1.5rem; margin:0 0 4px; }
+  p.sub { margin:0 0 24px; color:var(--muted); }
+  section { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:16px 20px; margin-bottom:16px; }
+  h2 { font-size:1rem; margin:0 0 12px; }
+  dl { display:grid; grid-template-columns:max-content 1fr; gap:6px 16px; margin:0; }
+  dt { color:var(--muted); } dd { margin:0; overflow-wrap:anywhere; font-family:ui-monospace,Consolas,monospace; font-size:.9rem; }
+  .ok { color:var(--ok); font-weight:600; } .warn { color:var(--warn); font-weight:600; } .bad { color:var(--bad); font-weight:600; }
+  button { font:inherit; padding:8px 16px; border-radius:8px; border:1px solid var(--line); background:var(--bg); color:var(--text); cursor:pointer; }
+  #result { margin-top:12px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Proxy test page</h1>
+  <p class="sub">If you can read this, nginx on the proxy server is running and port 9000 is reachable.</p>
+
+  <section>
+    <h2>This request</h2>
+    <dl>
+      <dt>Server time</dt><dd><!--# echo var="time_local" --></dd>
+      <dt>Your IP (as nginx sees it)</dt><dd><!--# echo var="remote_addr" --></dd>
+      <dt>Address you used</dt><dd><!--# echo var="http_host" --></dd>
+      <dt>Browser</dt><dd><!--# echo var="http_user_agent" --></dd>
+      <dt>Container</dt><dd><!--# echo var="hostname" --></dd>
+    </dl>
+  </section>
+
+  <section>
+    <h2>Production site (accounts.opelikaschools.org on 443)</h2>
+    <dl>
+      <dt>Status</dt><dd id="prod">checking…</dd>
+      <dt>Certificate</dt><dd id="cert">…</dd>
+      <dt>Last checked</dt><dd id="checked">…</dd>
+    </dl>
+  </section>
+
+  <section>
+    <h2>IIS backend (10.11.1.69:443)</h2>
+    <button id="check" type="button">Test connection to IIS</button>
+    <div id="result"></div>
+  </section>
+</main>
+<script>
+  fetch('/status.json', {cache: 'no-store'}).then(r => r.json()).then(s => {
+    const prod = document.getElementById('prod');
+    prod.textContent = s.production === 'enabled' ? 'Enabled' : 'Disabled - waiting for certificate';
+    prod.className = s.production === 'enabled' ? 'ok' : 'warn';
+    document.getElementById('cert').textContent = s.certificate;
+    document.getElementById('checked').textContent = s.checked;
+  }).catch(() => { document.getElementById('prod').textContent = 'status unavailable'; });
+
+  document.getElementById('check').addEventListener('click', async () => {
+    const out = document.getElementById('result');
+    out.className = ''; out.textContent = 'Testing…';
+    const t0 = performance.now();
+    try {
+      const r = await fetch('/backend-check', {redirect: 'manual', cache: 'no-store'});
+      const ms = Math.round(performance.now() - t0);
+      if (r.type === 'opaqueredirect') {
+        out.className = 'ok';
+        out.textContent = `Reachable (${ms} ms). IIS answered with a redirect - normally the Microsoft sign-in redirect, which is expected.`;
+      } else if (r.status === 502 || r.status === 504) {
+        out.className = 'bad';
+        out.textContent = `nginx could not reach IIS (HTTP ${r.status}). Check routing/firewall from the proxy to 10.11.1.69:443.`;
+      } else if (r.status >= 200 && r.status < 500) {
+        out.className = 'ok';
+        out.textContent = `Reachable (${ms} ms). IIS answered HTTP ${r.status}.`;
+      } else {
+        out.className = 'warn';
+        out.textContent = `IIS answered HTTP ${r.status} (${ms} ms) - reachable, but the site returned an error.`;
+      }
+    } catch (e) {
+      out.className = 'bad'; out.textContent = 'Request failed: ' + e.message;
+    }
+  });
+</script>
+</body>
+</html>
