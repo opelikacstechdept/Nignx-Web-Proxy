@@ -1,0 +1,11 @@
+services:
+  intranet-proxy:
+    image: ghcr.io/opelikacstechdept/nignx-web-proxy/intranet-proxy:latest
+    container_name: intranet-proxy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "9000:9000"   # test site - remove this line to turn it off
+    volumes:
+      - /etc/letsencrypt:/etc/letsencrypt:ro

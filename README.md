@@ -41,6 +41,8 @@ Image: `ghcr.io/opelikacstechdept/nignx-web-proxy/intranet-proxy`
 
 ## Running (docker compose)
 
+The same file is in the repo as `docker-compose.yml`.
+
 ```yaml
 services:
   intranet-proxy:
