@@ -1,0 +1,12 @@
+# Test proxy on port 9000. Production (80/443) is not affected.
+#   cd test && docker compose up -d
+services:
+  intranet-proxy-test:
+    image: nginx:stable-alpine
+    container_name: intranet-proxy-test
+    restart: "no"
+    ports:
+      - "9000:9000"
+    volumes:
+      - ./intranet-test.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./certs:/etc/nginx/certs:ro
