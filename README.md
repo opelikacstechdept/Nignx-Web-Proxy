@@ -12,7 +12,7 @@ An nginx reverse proxy that terminates TLS for `accounts.opelikaschools.org` and
 
 ## Configuration
 
-- **Backend:** edit the `upstream iis_backend` block in `nginx/conf.d/intranet.conf` (currently `192.168.1.50:80`).
+- **Backend:** edit the `upstream iis_backend` block in `nginx/conf.d/intranet.conf` (currently `https://10.11.1.69:443`).
 - **Domain:** if you change `server_name` or the cert paths, also update `DOMAIN` in the workflow so the CI config test still matches.
 
 ## CI / image
