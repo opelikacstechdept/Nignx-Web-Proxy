@@ -20,6 +20,7 @@ Port 443 switches on by itself as soon as the certificate exists, and nginx relo
 | `nginx/conf.d/10-http.conf` | Port 80: redirect to https |
 | `nginx/conf.d/20-accounts-443.conf` | Port 443: the real site |
 | `nginx/conf.d/30-test-9000.conf` | Port 9000: test page |
+| `nginx/conf.d/40-other-apps.conf` | Other apps on this host (8080/8081) by name — switched off for now |
 | `nginx/html/test/index.html` | The test page |
 | `nginx/docker-entrypoint.d/05-cert-watch.sh` | Finds the cert, turns 443 on when it exists, reloads on renewal |
 | `.github/workflows/build-proxy.yml` | Builds, tests (`nginx -t`) and pushes the image to GHCR |
@@ -33,6 +34,15 @@ Port 443 switches on by itself as soon as the certificate exists, and nginx relo
 - a **Test connection to IIS** button that checks whether the proxy can reach `10.11.1.69:443`. A redirect result is normal: it's IIS sending you to Microsoft sign-in.
 
 It deliberately does not proxy the site: Microsoft only sends users back to the registered `https://accounts.opelikaschools.org` address, so sign-in can only be tested on 443.
+
+## Other apps on this server (8080 / 8081)
+
+Two other containers run on the same Docker host. For now they are reached **directly**, without nginx:
+
+- `http://10.1.0.145:8080`
+- `http://10.1.0.145:8081`
+
+To reach them **by name** later (e.g. `app1.opelikaschools.org`), follow the steps at the top of `nginx/conf.d/40-other-apps.conf`: add internal DNS records pointing at 10.1.0.145, uncomment the two blocks, set the real names, and push. `docker-compose.yml` already includes the `extra_hosts` entry nginx needs to reach those ports.
 
 ## Adding the certificate
 
