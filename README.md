@@ -5,7 +5,7 @@ An nginx reverse proxy that serves `https://accounts.opelikaschools.org` and for
 | Port | What | Certificate |
 | --- | --- | --- |
 | 80 | Let's Encrypt validation; everything else redirects to https | none |
-| 443 | **accounts.opelikaschools.org** → IIS | Let's Encrypt (certbot container) |
+| 443 | **accounts.opelikaschools.org** → IIS | Let's Encrypt wildcard `*.opelikaschools.org` |
 | 9000 | **Test page** served by nginx itself (plain http) | none |
 
 Port 443 switches on by itself as soon as the certificate exists, and nginx reloads by itself after each renewal — no restarts needed.
@@ -21,7 +21,7 @@ Port 443 switches on by itself as soon as the certificate exists, and nginx relo
 | `nginx/conf.d/20-accounts-443.conf` | Port 443: the real site |
 | `nginx/conf.d/30-test-9000.conf` | Port 9000: test page |
 | `nginx/html/test/index.html` | The test page |
-| `nginx/docker-entrypoint.d/05-cert-watch.sh` | Turns 443 on when the cert exists; reloads on renewal |
+| `nginx/docker-entrypoint.d/05-cert-watch.sh` | Finds the cert, turns 443 on when it exists, reloads on renewal |
 | `.github/workflows/build-proxy.yml` | Builds, tests (`nginx -t`) and pushes the image to GHCR |
 
 ## Test page (port 9000)
@@ -36,24 +36,24 @@ It deliberately does not proxy the site: Microsoft only sends users back to the 
 
 ## Getting the certificate (first time)
 
-Let's Encrypt must reach the proxy over the internet on port 80:
+The proxy uses **one wildcard certificate** for `opelikaschools.org` and `*.opelikaschools.org`, so it covers `accounts.opelikaschools.org` and any other subdomain added later. Let's Encrypt only issues wildcards through a **DNS TXT-record check**, so the site does not need to be reachable from the internet and no ports need opening.
 
-1. Public DNS `accounts.opelikaschools.org` → the school's public IP.
-2. Firewall forwards ports **80 and 443** from that public IP to the proxy server (`10.1.0.145`).
-
-Then, in the folder with `docker-compose.yml`:
+On the proxy server, in the folder with `docker-compose.yml`:
 
 ```bash
-docker compose up -d
+docker compose run --rm -it --entrypoint certbot certbot certonly --manual --preferred-challenges dns -d opelikaschools.org -d '*.opelikaschools.org' --email <admin-email> --agree-tos --no-eff-email
 ```
 
-```bash
-docker compose run --rm --entrypoint certbot certbot certonly --webroot -w /var/www/certbot -d accounts.opelikaschools.org --email <admin-email> --agree-tos --no-eff-email
-```
+certbot then shows **two** TXT values, one at a time, both for the same name `_acme-challenge.opelikaschools.org`:
 
-Within 5 minutes the proxy notices the cert and enables 443 (the test page on 9000 shows it). Renewal runs automatically in the `certbot` container.
+1. In the **public** DNS for `opelikaschools.org`, add a TXT record `_acme-challenge` with the first value. Press Enter in certbot.
+2. Add a **second** TXT record with the same name and the second value (keep the first one). Wait a minute or two, then press Enter.
 
-If the site is internal-only (not reachable from the internet), port-80 validation can't work. Use a DNS challenge instead, or place an existing certificate (e.g. a wildcard) at `/etc/letsencrypt/live/accounts.opelikaschools.org/fullchain.pem` and `privkey.pem`.
+The certificate is saved to `/etc/letsencrypt/live/opelikaschools.org/`. Within 5 minutes the proxy notices it and enables 443 (the test page on 9000 shows it). The two TXT records can be deleted afterwards.
+
+**Renewal:** certificates issued this way last 90 days and do **not** renew by themselves, because the TXT records were added by hand. Run the same command again before it expires (Let's Encrypt emails a reminder). To make renewal automatic, certbot can use your DNS host's API instead; the proxy needs no change for that.
+
+The proxy looks for certificates in this order: `live/opelikaschools.org` (wildcard), then `live/accounts.opelikaschools.org`. Override with the `CERT_NAMES` environment variable.
 
 ## Microsoft sign-in through the proxy
 
@@ -71,7 +71,7 @@ Sign-in passes **through** the proxy; nginx never reads or stores credentials. U
 ## Configuration
 
 - **Backend:** `nginx/conf.d/00-backend.conf` (currently `10.11.1.69:443`).
-- **Domain:** if it changes, update `server_name`/cert paths in `10-http.conf`, `20-accounts-443.conf`, `DOMAIN` in `05-cert-watch.sh` and in the workflow.
+- **Domain:** if it changes, update `server_name` in `10-http.conf` and `20-accounts-443.conf`, `CERT_NAMES` in `05-cert-watch.sh`, and `CERT_NAME` in the workflow.
 
 ## Automatic builds
 

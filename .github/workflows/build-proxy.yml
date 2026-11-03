@@ -8,7 +8,7 @@ on:
 
 env:
   IMAGE_NAME: ghcr.io/${{ github.repository }}/intranet-proxy
-  DOMAIN: accounts.opelikaschools.org   # must match server_name / cert paths in intranet.conf
+  CERT_NAME: opelikaschools.org   # wildcard cert folder the proxy looks for first
 
 permissions:
   contents: read
@@ -36,10 +36,10 @@ jobs:
       # so a broken config never reaches the registry
       - name: Test nginx config
         run: |
-          mkdir -p test-certs/live/$DOMAIN
-          openssl req -x509 -nodes -newkey rsa:2048 -days 1 -subj "/CN=$DOMAIN" \
-            -keyout test-certs/live/$DOMAIN/privkey.pem \
-            -out    test-certs/live/$DOMAIN/fullchain.pem
+          mkdir -p test-certs/live/$CERT_NAME
+          openssl req -x509 -nodes -newkey rsa:2048 -days 1 -subj "/CN=*.$CERT_NAME" \
+            -keyout test-certs/live/$CERT_NAME/privkey.pem \
+            -out    test-certs/live/$CERT_NAME/fullchain.pem
           # With a cert: production (80/443) + test (9000) sites must both load
           docker run --rm -v "$PWD/test-certs:/etc/letsencrypt:ro" intranet-proxy:test nginx -t
           # Without a cert: production site is switched off, test site must still load
