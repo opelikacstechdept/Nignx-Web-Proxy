@@ -1,15 +1,16 @@
 #!/bin/sh
 # Runs on container start (before nginx), then keeps watching in the background.
-# - Production (443) is only enabled when the Let's Encrypt cert exists; otherwise
+# - Production (443) is only enabled when a certificate exists; otherwise
 #   nginx would refuse to start at all.
 # - When a cert appears later (first certbot run) or is renewed, nginx is reloaded
 #   automatically - no restart needed.
 set -eu
 
-# Certificates to use, in order of preference (certbot "cert names", i.e. folders
-# under /etc/letsencrypt/live). The wildcard cert for opelikaschools.org +
-# *.opelikaschools.org comes first; a single-name cert is the fallback.
-CERT_NAMES=${CERT_NAMES:-"opelikaschools.org accounts.opelikaschools.org"}
+# Folders to look in for fullchain.pem + privkey.pem, in order of preference:
+#  1. /certs/opelikaschools.org  - wildcard cert copied here by win-acme on the
+#                                  Windows IIS server (windows/copy-cert-to-proxy.ps1)
+#  2. certbot wildcard cert, then a certbot single-name cert (fallbacks)
+CERT_DIRS=${CERT_DIRS:-"/certs/opelikaschools.org /etc/letsencrypt/live/opelikaschools.org /etc/letsencrypt/live/accounts.opelikaschools.org"}
 SSL_DIR=/etc/nginx/ssl        # nginx reads the cert via links in here
 CONF=/etc/nginx/conf.d/20-accounts-443.conf
 STATUS=/usr/share/nginx/test/status.json
@@ -18,8 +19,7 @@ INTERVAL=${CERT_CHECK_INTERVAL:-300}   # seconds
 LE_DIR=""
 find_cert() {   # sets LE_DIR to the first cert folder that has both files
     LE_DIR=""
-    for name in $CERT_NAMES; do
-        d=/etc/letsencrypt/live/$name
+    for d in $CERT_DIRS; do
         if [ -s "$d/fullchain.pem" ] && [ -s "$d/privkey.pem" ]; then LE_DIR=$d; return 0; fi
     done
     return 1
@@ -39,7 +39,7 @@ apply() {   # prints "yes" if the production site was switched on/off
         state=enabled; cert="found ($LE_DIR)"
     else
         if [ -f "$CONF" ]; then mv "$CONF" "$CONF.disabled"; changed=yes; fi
-        state=disabled; cert="missing (looked for: $CERT_NAMES)"
+        state=disabled; cert="missing (looked in: $CERT_DIRS)"
     fi
     printf '{"production":"%s","certificate":"%s","checked":"%s"}\n' \
         "$state" "$cert" "$(date -u '+%Y-%m-%d %H:%M:%S UTC')" > "$STATUS"
@@ -52,7 +52,7 @@ apply >/dev/null
 if have_cert; then
     echo "05-cert-watch: certificate found at $LE_DIR - production site on 443 enabled"
 else
-    echo "05-cert-watch: WARNING no certificate in /etc/letsencrypt/live/{$CERT_NAMES} - production site on 443 DISABLED until it appears (port 80 and test page on 9000 still run)"
+    echo "05-cert-watch: WARNING no certificate in any of: $CERT_DIRS - production site on 443 DISABLED until it appears (port 80 and test page on 9000 still run)"
 fi
 
 # Background watcher: enable 443 when the cert appears; reload to pick up renewals.

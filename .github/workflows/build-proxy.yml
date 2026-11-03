@@ -15,6 +15,23 @@ permissions:
   packages: write
 
 jobs:
+  # Syntax check for the Windows script that copies the cert from IIS to the proxy
+  check-windows-script:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Parse windows/*.ps1
+        shell: pwsh
+        run: |
+          $failed = $false
+          foreach ($f in Get-ChildItem windows -Filter *.ps1) {
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile($f.FullName, [ref]$null, [ref]$errors) | Out-Null
+            if ($errors) { $failed = $true; $errors | ForEach-Object { Write-Error "$($f.Name): $_" } }
+            else { Write-Output "$($f.Name): OK" }
+          }
+          if ($failed) { exit 1 }
+
   build:
     runs-on: ubuntu-latest
     steps:

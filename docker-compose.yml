@@ -8,10 +8,12 @@ services:
       - "443:443"     # https://accounts.opelikaschools.org
       - "9000:9000"   # test page (http) - remove this line to turn it off
     volumes:
-      - /etc/letsencrypt:/etc/letsencrypt:ro
+      - ./certs:/certs:ro                       # wildcard cert copied from the IIS server (win-acme)
+      - /etc/letsencrypt:/etc/letsencrypt:ro    # certbot certs (fallback)
       - ./certbot-www:/var/www/certbot:ro
 
-  # Renews the certificate twice a day; nginx picks up the new cert on its own.
+  # Optional: only needed if certbot (not win-acme) issues the certificate.
+  # Renews certbot certs twice a day; nginx picks up the new cert on its own.
   certbot:
     image: certbot/certbot:latest
     container_name: certbot

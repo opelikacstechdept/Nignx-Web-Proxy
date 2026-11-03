@@ -5,7 +5,7 @@ An nginx reverse proxy that serves `https://accounts.opelikaschools.org` and for
 | Port | What | Certificate |
 | --- | --- | --- |
 | 80 | Let's Encrypt validation; everything else redirects to https | none |
-| 443 | **accounts.opelikaschools.org** → IIS | Let's Encrypt wildcard `*.opelikaschools.org` |
+| 443 | **accounts.opelikaschools.org** → IIS | Wildcard `*.opelikaschools.org` (from win-acme on the IIS server) |
 | 9000 | **Test page** served by nginx itself (plain http) | none |
 
 Port 443 switches on by itself as soon as the certificate exists, and nginx reloads by itself after each renewal — no restarts needed.
@@ -14,7 +14,8 @@ Port 443 switches on by itself as soon as the certificate exists, and nginx relo
 
 | Path | Purpose |
 | --- | --- |
-| `docker-compose.yml` | Proxy + certbot (renewal) for the server |
+| `docker-compose.yml` | Proxy (+ optional certbot) for the server |
+| `windows/copy-cert-to-proxy.ps1` | Run by win-acme on the IIS server: copies the cert to the proxy |
 | `nginx/Dockerfile` | Image based on `nginx:stable-alpine` |
 | `nginx/conf.d/00-backend.conf` | IIS backend address, shared settings, token-safe log format |
 | `nginx/conf.d/10-http.conf` | Port 80: ACME challenge + redirect |
@@ -34,26 +35,78 @@ Port 443 switches on by itself as soon as the certificate exists, and nginx relo
 
 It deliberately does not proxy the site: Microsoft only sends users back to the registered `https://accounts.opelikaschools.org` address, so sign-in can only be tested on 443.
 
-## Getting the certificate (first time)
+## Certificate: one wildcard cert for IIS and the proxy
 
-The proxy uses **one wildcard certificate** for `opelikaschools.org` and `*.opelikaschools.org`, so it covers `accounts.opelikaschools.org` and any other subdomain added later. Let's Encrypt only issues wildcards through a **DNS TXT-record check**, so the site does not need to be reachable from the internet and no ports need opening.
+One Let's Encrypt **wildcard certificate** (`opelikaschools.org` + `*.opelikaschools.org`) is used on **both** servers:
 
-On the proxy server, in the folder with `docker-compose.yml`:
+- **win-acme** on the IIS server (10.11.1.69) requests and renews it, and installs it in IIS.
+- After every issue/renewal, win-acme runs `windows/copy-cert-to-proxy.ps1`, which copies it over SSH to the proxy (`/opt/nginx-proxy/certs/opelikaschools.org/`).
+- The proxy notices the new files within 5 minutes and reloads itself (port 443 switches on the first time).
+
+### 1. Proxy server (10.1.0.145), once
 
 ```bash
-docker compose run --rm -it --entrypoint certbot certbot certonly --manual --preferred-challenges dns -d opelikaschools.org -d '*.opelikaschools.org' --email <admin-email> --agree-tos --no-eff-email
+mkdir -p /opt/nginx-proxy/certs
 ```
 
-certbot then shows **two** TXT values, one at a time, both for the same name `_acme-challenge.opelikaschools.org`:
+Use the current `docker-compose.yml` from this repo (it mounts `./certs`), then:
 
-1. In the **public** DNS for `opelikaschools.org`, add a TXT record `_acme-challenge` with the first value. Press Enter in certbot.
-2. Add a **second** TXT record with the same name and the second value (keep the first one). Wait a minute or two, then press Enter.
+```bash
+cd /opt/nginx-proxy && docker compose pull && docker compose up -d
+```
 
-The certificate is saved to `/etc/letsencrypt/live/opelikaschools.org/`. Within 5 minutes the proxy notices it and enables 443 (the test page on 9000 shows it). The two TXT records can be deleted afterwards.
+### 2. IIS server (10.11.1.69), once — PowerShell as Administrator
 
-**Renewal:** certificates issued this way last 90 days and do **not** renew by themselves, because the TXT records were added by hand. Run the same command again before it expires (Let's Encrypt emails a reminder). To make renewal automatic, certbot can use your DNS host's API instead; the proxy needs no change for that.
+Folder for the script, key and PEM files, readable only by SYSTEM and Administrators:
 
-The proxy looks for certificates in this order: `live/opelikaschools.org` (wildcard), then `live/accounts.opelikaschools.org`. Override with the `CERT_NAMES` environment variable.
+```powershell
+New-Item -ItemType Directory -Force C:\certs\pem | Out-Null
+icacls C:\certs /inheritance:r /grant "SYSTEM:(OI)(CI)F" "Administrators:(OI)(CI)F"
+```
+
+Copy `windows/copy-cert-to-proxy.ps1` from this repo to `C:\certs\`. Create an SSH key; press **Enter twice** when asked for a passphrase (win-acme runs unattended, so the key can't have one):
+
+```powershell
+ssh-keygen -t ed25519 -f C:\certs\proxy_ssh_key -C "win-acme copy to proxy"
+```
+
+Show the public key and copy the line:
+
+```powershell
+Get-Content C:\certs\proxy_ssh_key.pub
+```
+
+On the **proxy server**, append that line to `~localadmin/.ssh/authorized_keys`, prefixed with `from="10.11.1.69" ` so the key only works from the IIS server:
+
+```bash
+mkdir -p ~/.ssh && chmod 700 ~/.ssh && echo 'from="10.11.1.69" <paste the ssh-ed25519 line here>' >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys
+```
+
+### 3. Request the certificate with win-acme
+
+Download win-acme (x64, pluggable) from <https://www.win-acme.com> to `C:\win-acme`, run `wacs.exe` as Administrator and choose:
+
+| Prompt | Choice |
+| --- | --- |
+| Main menu | **Create certificate (full options)** |
+| Source | **Manual input** — `opelikaschools.org,*.opelikaschools.org` |
+| Split | one certificate |
+| Validation | **DNS** — "Create verification records manually" (or your DNS host's plugin, see below) |
+| Key type | RSA |
+| Store | **Windows Certificate Store** *and* **PEM encoded files** → path `C:\certs\pem` |
+| Installation | **Create or update bindings in IIS** (pick the accounts.opelikaschools.org site) *and* **Start external script** → `C:\certs\copy-cert-to-proxy.ps1`, no parameters |
+
+For manual DNS validation win-acme shows TXT values for `_acme-challenge.opelikaschools.org`; add each one in the **public** DNS for `opelikaschools.org` and press Enter. They can be removed afterwards.
+
+When it finishes, check `C:\certs\copy-cert-to-proxy.log` and the proxy test page (`http://10.1.0.145:9000`), which should show the certificate as found in `/certs/opelikaschools.org`.
+
+### Renewal
+
+win-acme adds a scheduled task that renews automatically **only if validation is automatic**. With manual TXT records it can't renew unattended, so either re-run it before the 90 days are up, or pick your DNS host's plugin in the validation step (Cloudflare, Azure DNS, Route 53, GoDaddy, Google and others are available) so renewals — and the copy to the proxy — happen on their own.
+
+### Fallback: certbot on the proxy
+
+The proxy also accepts a certbot certificate in `/etc/letsencrypt/live/opelikaschools.org/` (or `live/accounts.opelikaschools.org/`) if there is none in `certs/`. Search order can be changed with the `CERT_DIRS` environment variable.
 
 ## Microsoft sign-in through the proxy
 
@@ -71,7 +124,7 @@ Sign-in passes **through** the proxy; nginx never reads or stores credentials. U
 ## Configuration
 
 - **Backend:** `nginx/conf.d/00-backend.conf` (currently `10.11.1.69:443`).
-- **Domain:** if it changes, update `server_name` in `10-http.conf` and `20-accounts-443.conf`, `CERT_NAMES` in `05-cert-watch.sh`, and `CERT_NAME` in the workflow.
+- **Domain:** if it changes, update `server_name` in `10-http.conf` and `20-accounts-443.conf`, `CERT_DIRS` in `05-cert-watch.sh`, `RemoteDir` in `copy-cert-to-proxy.ps1`, and `CERT_NAME` in the workflow.
 
 ## Automatic builds
 
