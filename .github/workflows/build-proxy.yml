@@ -41,6 +41,9 @@ jobs:
             -out    test-certs/fullchain.pem
           # With a cert: production (80/443) + test (9000) sites must both load
           docker run --rm -v "$PWD/test-certs:/certs:ro" intranet-proxy:test nginx -t
+          # With a GAT password file: the password-protected GAT site (8081) must load too
+          mkdir -p test-auth && printf 'test:%s\n' "$(openssl passwd -6 test)" > test-auth/gat.htpasswd
+          docker run --rm -v "$PWD/test-certs:/certs:ro" -v "$PWD/test-auth:/auth:ro" intranet-proxy:test nginx -t
           # Without a cert: production site is switched off, test site must still load
           docker run --rm intranet-proxy:test nginx -t
 

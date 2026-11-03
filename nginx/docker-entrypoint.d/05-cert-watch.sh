@@ -4,6 +4,8 @@
 #   nginx would refuse to start at all.
 # - When a cert is added or replaced later, nginx is reloaded automatically -
 #   no restart needed.
+# - The password-protected GAT site (8081) is only enabled when its password
+#   file exists, for the same reason.
 set -eu
 
 # Folder(s) to look in for fullchain.pem + privkey.pem, in order of preference.
@@ -13,6 +15,8 @@ SSL_DIR=/etc/nginx/ssl        # nginx reads the cert via links in here
 CONF=/etc/nginx/conf.d/20-accounts-443.conf
 STATUS=/usr/share/nginx/test/status.json
 INTERVAL=${CERT_CHECK_INTERVAL:-300}   # seconds
+GAT_CONF=/etc/nginx/conf.d/41-gat-8081.conf
+GAT_AUTH=/auth/gat.htpasswd
 
 CERT_DIR=""
 find_cert() {   # sets CERT_DIR to the first cert folder that has both files
@@ -39,6 +43,11 @@ apply() {   # prints "yes" if the production site was switched on/off
         if [ -f "$CONF" ]; then mv "$CONF" "$CONF.disabled"; changed=yes; fi
         state=disabled; cert="missing (looked in: $CERT_DIRS)"
     fi
+    if [ -s "$GAT_AUTH" ]; then
+        if [ -f "$GAT_CONF.disabled" ]; then mv "$GAT_CONF.disabled" "$GAT_CONF"; changed=yes; fi
+    else
+        if [ -f "$GAT_CONF" ]; then mv "$GAT_CONF" "$GAT_CONF.disabled"; changed=yes; fi
+    fi
     printf '{"production":"%s","certificate":"%s","checked":"%s"}\n' \
         "$state" "$cert" "$(date -u '+%Y-%m-%d %H:%M:%S UTC')" > "$STATUS"
     echo "$changed"
@@ -52,6 +61,11 @@ if have_cert; then
 else
     echo "05-cert-watch: WARNING no certificate in any of: $CERT_DIRS - production site on 443 DISABLED until it appears (port 80 and test page on 9000 still run)"
 fi
+if [ -s "$GAT_AUTH" ]; then
+    echo "05-cert-watch: GAT password file found - GAT on 8081 enabled"
+else
+    echo "05-cert-watch: no GAT password file ($GAT_AUTH) - GAT on 8081 DISABLED"
+fi
 
 # Background watcher: enable 443 when the cert appears; reload to pick up renewals.
 (
@@ -62,7 +76,7 @@ fi
         fp=$(fingerprint)
         if [ "$changed" = yes ] || [ "$fp" != "$last" ]; then
             if nginx -t >/dev/null 2>&1; then
-                nginx -s reload && echo "05-cert-watch: reloaded nginx (certificate added, renewed or removed)"
+                nginx -s reload && echo "05-cert-watch: reloaded nginx (certificate or GAT password file changed)"
             else
                 echo "05-cert-watch: config test failed, not reloading"
             fi

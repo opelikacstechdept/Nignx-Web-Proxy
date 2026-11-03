@@ -4,17 +4,25 @@ services:
     container_name: intranet-proxy
     restart: unless-stopped
     ports:
-      - "80:80"       # redirects to https
+      - "80:80"       # status page by IP; accounts.opelikaschools.org -> https
       - "443:443"     # https://accounts.opelikaschools.org (on once a cert is in ./certs)
       - "9000:9000"   # test page (http) - remove this line to turn it off
+      - "8081:8081"   # GAT, password protected (needs ./auth/gat.htpasswd)
     volumes:
       - ./certs:/certs:ro   # put fullchain.pem + privkey.pem here (see README)
-    # Lets nginx reach other containers' published ports on this host
-    # (the apps on 8080/8081) as host.docker.internal - used by
-    # nginx/conf.d/40-other-apps.conf once those apps move to names.
+      - ./auth:/auth:ro     # password files (gat.htpasswd)
+    # Lets nginx reach other containers' published ports on this host as
+    # host.docker.internal - used by nginx/conf.d/40-other-apps.conf later.
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    networks:
+      - default
+      - proxy-net             # shared with GAT so nginx can reach it by name
 
-# The other apps on this server are separate containers on 8080 and 8081.
-# Today they are reached directly: http://10.1.0.145:8080 and :8081.
-# Do not publish 8080/8081 here - those ports belong to the apps.
+networks:
+  proxy-net:
+    external: true            # create once: docker network create proxy-net
+
+# Other apps on this server:
+#   IIQResponder  http://10.1.0.145:8082  (own login)
+#   GAT           http://10.1.0.145:8081  (through nginx, password above)

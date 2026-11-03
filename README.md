@@ -7,6 +7,7 @@ An nginx reverse proxy that serves `https://accounts.opelikaschools.org` and for
 | 80 | `accounts.opelikaschools.org` → redirect to https; anything else (e.g. by IP) → status page | none |
 | 443 | **accounts.opelikaschools.org** → IIS | Your certificate in `certs/` (443 is off until it's there) |
 | 9000 | **Test page** served by nginx itself (plain http) | none |
+| 8081 | **GAT**, password protected (plain http) | none |
 
 Port 443 switches on by itself as soon as the certificate exists, and nginx reloads by itself after each renewal — no restarts needed.
 
@@ -21,6 +22,7 @@ Port 443 switches on by itself as soon as the certificate exists, and nginx relo
 | `nginx/conf.d/10-http.conf` | Port 80: redirect accounts.opelikaschools.org to https |
 | `nginx/conf.d/20-accounts-443.conf` | Port 443: the real site |
 | `nginx/conf.d/30-test-9000.conf` | Status/test page on 9000, and on 80 by IP |
+| `nginx/conf.d/41-gat-8081.conf` | GAT on 8081 behind a password |
 | `nginx/conf.d/40-other-apps.conf` | Other apps on this host (8080/8081) by name — switched off for now |
 | `nginx/html/test/index.html` | The test page |
 | `nginx/docker-entrypoint.d/05-cert-watch.sh` | Finds the cert, turns 443 on when it exists, reloads on renewal |
@@ -36,12 +38,48 @@ Port 443 switches on by itself as soon as the certificate exists, and nginx relo
 
 It deliberately does not proxy the site: Microsoft only sends users back to the registered `https://accounts.opelikaschools.org` address, so sign-in can only be tested on 443.
 
+## GAT behind a password (port 8081)
+
+GAT (`gat-web-1`) has no login of its own, so nginx asks for a username and password (the browser's sign-in box) before passing anyone through to it. GAT itself no longer publishes a port, so the password can't be bypassed.
+
+One-time setup on the proxy server:
+
+1. Shared network so nginx can reach GAT by name:
+   ```bash
+   docker network create proxy-net
+   ```
+2. In **GAT's** compose file: delete its `ports:` lines (`127.0.0.1:8081:8080`), and join the network — add under its service:
+   ```yaml
+       networks:
+         - default
+         - proxy-net
+   ```
+   and at the bottom of the file:
+   ```yaml
+   networks:
+     proxy-net:
+       external: true
+   ```
+   Then `docker compose up -d` in GAT's folder.
+3. Create a login (asks for the password twice; it is stored hashed):
+   ```bash
+   sudo mkdir -p /opt/nginx-proxy/auth && printf 'gatadmin:%s\n' "$(openssl passwd -6)" | sudo tee -a /opt/nginx-proxy/auth/gat.htpasswd >/dev/null
+   ```
+4. Use the current `docker-compose.yml` from this repo (port 8081, `./auth`, `proxy-net`), then `docker compose pull && docker compose up -d` in `/opt/nginx-proxy`.
+
+Browse to `http://10.1.0.145:8081`.
+
+- **More users:** run step 3 again with another name in place of `gatadmin`. Takes effect immediately.
+- **Change a password / remove a user:** edit `/opt/nginx-proxy/auth/gat.htpasswd` (one line per user), then re-add the user with step 3.
+- **No password file → port 8081 stays closed**, so GAT is never exposed without a password.
+- The password travels over plain http on the internal network. Once a certificate is in place this can move to https.
+
 ## Other apps on this server (8080 / 8081)
 
 Two other containers run on the same Docker host. For now they are reached **directly**, without nginx:
 
 - `http://10.1.0.145:8080`
-- `http://10.1.0.145:8081`
+- `http://10.1.0.145:8081` (GAT — now through nginx with a password, see above)
 
 To reach them **by name** later (e.g. `app1.opelikaschools.org`), follow the steps at the top of `nginx/conf.d/40-other-apps.conf`: add internal DNS records pointing at 10.1.0.145, uncomment the two blocks, set the real names, and push. `docker-compose.yml` already includes the `extra_hosts` entry nginx needs to reach those ports.
 
