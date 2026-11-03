@@ -15,6 +15,7 @@ Port 443 switches on by itself as soon as the certificate exists, and nginx relo
 | Path | Purpose |
 | --- | --- |
 | `docker-compose.yml` | Runs the proxy on the server |
+| `scripts/make-internal-cert.sh` | Creates an internal CA and the proxy's certificate |
 | `nginx/Dockerfile` | Image based on `nginx:stable-alpine` |
 | `nginx/conf.d/00-backend.conf` | IIS backend address, shared settings, token-safe log format |
 | `nginx/conf.d/10-http.conf` | Port 80: redirect accounts.opelikaschools.org to https |
@@ -43,6 +44,43 @@ Two other containers run on the same Docker host. For now they are reached **dir
 - `http://10.1.0.145:8081`
 
 To reach them **by name** later (e.g. `app1.opelikaschools.org`), follow the steps at the top of `nginx/conf.d/40-other-apps.conf`: add internal DNS records pointing at 10.1.0.145, uncomment the two blocks, set the real names, and push. `docker-compose.yml` already includes the `extra_hosts` entry nginx needs to reach those ports.
+
+## Internal certificate (until a purchased one is in place)
+
+`scripts/make-internal-cert.sh` creates a small **internal certificate authority (CA)** once, and issues the proxy's HTTPS certificate from it. Machines that have the CA installed trust the site with no warnings; others see a certificate warning.
+
+The CA is limited (name constraints) to `opelikaschools.org` names and `10.x.x.x` addresses, so even if its key leaked it could not be used to impersonate other websites.
+
+### Create it (proxy server)
+
+Copy `scripts/make-internal-cert.sh` to `/opt/nginx-proxy/`, then:
+
+```bash
+cd /opt/nginx-proxy && chmod +x make-internal-cert.sh && sudo ./make-internal-cert.sh accounts.opelikaschools.org 10.1.0.145
+```
+
+List every name (and IP) the certificate should cover. The script writes `certs/fullchain.pem` + `certs/privkey.pem` (the proxy turns 443 on within 5 minutes) and `ca/OpelikaSchools-Internal-CA.cer` (the file to deploy).
+
+- **Renew / add names:** run it again with the full list of names. The same CA is reused, so machines need nothing new. The server certificate lasts 825 days.
+- **`ca/ca.key` is the CA's private key.** Keep it secret and back it up somewhere safe; without it you can't renew, and anyone with it can issue certificates the machines trust (within the limits above).
+
+### Install the CA on the machines that should trust it
+
+Use `OpelikaSchools-Internal-CA.cer`. It must go in the **Trusted Root Certification Authorities** store (machine-wide), not the personal store.
+
+| Machines | How |
+| --- | --- |
+| Domain-joined Windows (Group Policy) | Group Policy Management → edit a GPO linked to those computers → Computer Configuration → Policies → Windows Settings → Security Settings → Public Key Policies → **Trusted Root Certification Authorities** → right-click → Import → the `.cer`. Applies at next policy refresh (`gpupdate /force` to test). |
+| Intune-managed Windows | Devices → Configuration → Create → Windows 10 and later → Templates → **Trusted certificate** → upload the `.cer`, destination store "Computer certificate store - Root" → assign. |
+| One Windows PC (testing) | Admin Command Prompt: `certutil -addstore -f Root OpelikaSchools-Internal-CA.cer` |
+| Chromebooks | Google Admin console → Devices → Networks → **Certificates** → pick the OU → Add certificate → upload → tick **Chromebook** under "Certificate authority" → Save. |
+| Mac | `sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain OpelikaSchools-Internal-CA.cer` (or an MDM certificate profile) |
+
+Edge and Chrome on Windows use the Windows store. Firefox uses its own unless enterprise roots are enabled (policy `Certificates → ImportEnterpriseRoots`, on by default in recent versions on Windows).
+
+To check a machine: browse to `https://accounts.opelikaschools.org` — no warning, and the certificate is issued by *Opelika City Schools Internal CA*. The CA thumbprint the script prints should match the one shown on the machine.
+
+When the purchased certificate arrives, put it in `certs/` (below); the internal CA can then be removed from the machines.
 
 ## Adding the certificate
 
