@@ -4,7 +4,7 @@ An nginx reverse proxy that serves `https://accounts.opelikaschools.org` and for
 
 | Port | What | Certificate |
 | --- | --- | --- |
-| 80 | Redirects to https | none |
+| 80 | `accounts.opelikaschools.org` → redirect to https; anything else (e.g. by IP) → status page | none |
 | 443 | **accounts.opelikaschools.org** → IIS | Your certificate in `certs/` (443 is off until it's there) |
 | 9000 | **Test page** served by nginx itself (plain http) | none |
 
@@ -17,9 +17,9 @@ Port 443 switches on by itself as soon as the certificate exists, and nginx relo
 | `docker-compose.yml` | Runs the proxy on the server |
 | `nginx/Dockerfile` | Image based on `nginx:stable-alpine` |
 | `nginx/conf.d/00-backend.conf` | IIS backend address, shared settings, token-safe log format |
-| `nginx/conf.d/10-http.conf` | Port 80: redirect to https |
+| `nginx/conf.d/10-http.conf` | Port 80: redirect accounts.opelikaschools.org to https |
 | `nginx/conf.d/20-accounts-443.conf` | Port 443: the real site |
-| `nginx/conf.d/30-test-9000.conf` | Port 9000: test page |
+| `nginx/conf.d/30-test-9000.conf` | Status/test page on 9000, and on 80 by IP |
 | `nginx/conf.d/40-other-apps.conf` | Other apps on this host (8080/8081) by name — switched off for now |
 | `nginx/html/test/index.html` | The test page |
 | `nginx/docker-entrypoint.d/05-cert-watch.sh` | Finds the cert, turns 443 on when it exists, reloads on renewal |
