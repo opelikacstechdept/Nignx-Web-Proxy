@@ -74,11 +74,11 @@ Browse to `http://10.1.0.145:8081`.
 - **No password file → port 8081 stays closed**, so GAT is never exposed without a password.
 - The password travels over plain http on the internal network. Once a certificate is in place this can move to https.
 
-## Other apps on this server (8080 / 8081)
+## Other apps on this server (8082 / 8081)
 
 Two other containers run on the same Docker host. For now they are reached **directly**, without nginx:
 
-- `http://10.1.0.145:8080`
+- `http://10.1.0.145:8082` (IIQResponder — its own login)
 - `http://10.1.0.145:8081` (GAT — now through nginx with a password, see above)
 
 To reach them **by name** later (e.g. `app1.opelikaschools.org`), follow the steps at the top of `nginx/conf.d/40-other-apps.conf`: add internal DNS records pointing at 10.1.0.145, uncomment the two blocks, set the real names, and push. `docker-compose.yml` already includes the `extra_hosts` entry nginx needs to reach those ports.
