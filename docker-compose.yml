@@ -4,22 +4,8 @@ services:
     container_name: intranet-proxy
     restart: unless-stopped
     ports:
-      - "80:80"       # Let's Encrypt validation + redirect to https
-      - "443:443"     # https://accounts.opelikaschools.org
+      - "80:80"       # redirects to https
+      - "443:443"     # https://accounts.opelikaschools.org (on once a cert is in ./certs)
       - "9000:9000"   # test page (http) - remove this line to turn it off
     volumes:
-      - ./certs:/certs:ro                       # wildcard cert copied from the IIS server (win-acme)
-      - /etc/letsencrypt:/etc/letsencrypt:ro    # certbot certs (fallback)
-      - ./certbot-www:/var/www/certbot:ro
-
-  # Optional: only needed if certbot (not win-acme) issues the certificate.
-  # Renews certbot certs twice a day; nginx picks up the new cert on its own.
-  certbot:
-    image: certbot/certbot:latest
-    container_name: certbot
-    restart: unless-stopped
-    volumes:
-      - /etc/letsencrypt:/etc/letsencrypt
-      - ./certbot-www:/var/www/certbot
-    entrypoint: /bin/sh
-    command: -c 'trap exit TERM; while :; do certbot renew --webroot -w /var/www/certbot --quiet; sleep 12h & wait $${!}; done'
+      - ./certs:/certs:ro   # put fullchain.pem + privkey.pem here (see README)
