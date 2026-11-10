@@ -3,14 +3,12 @@ FROM nginx:stable-alpine
 
 RUN rm -f /etc/nginx/conf.d/default.conf
 
-# Sites: see conf.d (https by name, http fallbacks, status page on 80 by IP and 9000)
+# One file per site, plus 00-common.conf for shared settings
 COPY conf.d/ /etc/nginx/conf.d/
-COPY snippets/ /etc/nginx/snippets/
 COPY html/test/ /usr/share/nginx/test/
 
-# Enables 443 once a certificate is present and reloads nginx when it changes
+# Reloads nginx when the certificate is replaced; writes the status page's status.json
 COPY --chmod=755 docker-entrypoint.d/05-cert-watch.sh /docker-entrypoint.d/05-cert-watch.sh
 
-# Mounted at runtime:
-#   /certs   fullchain.pem + privkey.pem
-EXPOSE 80 443 9000 8081
+# Mounted at runtime: /certs (fullchain.pem + privkey.pem), /auth (gat.htpasswd)
+EXPOSE 80 443 8081 9000

@@ -5,7 +5,7 @@ services:
     restart: unless-stopped
     ports:
       - "80:80"       # http -> https redirects; status page by IP
-      - "443:443"     # https sites (wildcard cert in ./certs)
+      - "443:443"     # https sites (wildcard cert in ./certs - required)
       - "9000:9000"   # status/test page (http) - remove this line to turn it off
       - "8081:8081"   # old GAT address -> redirects to https://gat.opelikaschools.org
     volumes:

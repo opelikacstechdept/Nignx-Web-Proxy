@@ -12,7 +12,7 @@ The front end for the web apps on the Docker host **10.1.0.145**. nginx answers 
 
 - `http://` on any of these names redirects to `https://`. The old GAT address `http://10.1.0.145:8081` redirects to `https://gat.opelikaschools.org`.
 - Each name needs an **internal DNS A record** pointing at `10.1.0.145`.
-- Names that aren't listed (or a site that is switched off) are refused on 443 rather than showing another site.
+- Names that aren't listed are refused on 443 rather than showing another site.
 
 ## The certificate
 
@@ -25,7 +25,7 @@ On the proxy server it lives in **`/opt/nginx-proxy/certs/`** as two files:
 | `fullchain.pem` | The certificate, followed by GoDaddy's intermediate bundle |
 | `privkey.pem` | The private key (unencrypted, `chmod 600`) |
 
-Within 5 minutes of the files appearing or being replaced (renewal) the proxy switches every site to HTTPS and reloads by itself — no restart. Until they exist, the app sites run on plain http by name and `accounts` stays off.
+nginx needs both files to start. When they're replaced (renewal), the proxy notices within 5 minutes and reloads by itself — no restart.
 
 ### Installing / renewing (GoDaddy)
 
@@ -75,38 +75,25 @@ sudo mkdir -p /opt/nginx-proxy/certs/pending && cd /opt/nginx-proxy/certs/pendin
 
 GoDaddy certificates last about a year. Check the end date with the `openssl x509 ... -enddate` command above, renew on GoDaddy before it, and install the new certificate as above.
 
-## How sites switch on and off
-
-`nginx/docker-entrypoint.d/05-cert-watch.sh` runs at startup and every 5 minutes, and switches config files on/off by name, so one missing piece never stops nginx as a whole:
-
-| Files | On when |
-| --- | --- |
-| `*.https.conf` | the certificate is present |
-| `*.http.conf` | the certificate is **not** present (plain-http fallback) |
-| `41-gat.*` | … and `auth/gat.htpasswd` exists |
-| `42-upsmonitor.*`, `43-iiqresponder.*` | … and `host.docker.internal` resolves (`extra_hosts` in `docker-compose.yml`) |
-
-The startup log lists which sites are on and off.
-
-## Layout
+## Layout — one file per site
 
 | Path | Purpose |
 | --- | --- |
-| `docker-compose.yml` | Runs the proxy on the server |
+| `nginx/conf.d/00-common.conf` | Shared: certificate/TLS, proxy headers, http→https redirect for every name, refuse unknown names on 443 |
+| `nginx/conf.d/accounts.conf` | accounts.opelikaschools.org → IIS `10.11.1.69` |
+| `nginx/conf.d/gat.conf` | gat.opelikaschools.org → GAT (password), old `:8081` → https |
+| `nginx/conf.d/upsmonitor.conf` | upsmonitor.opelikaschools.org → host port 8084 |
+| `nginx/conf.d/iiqresponder.conf` | iiqresponder.opelikaschools.org → host port 8082 |
+| `nginx/conf.d/status.conf` | Status/test page on 80 by IP and on 9000 |
+| `nginx/html/test/index.html` | The status/test page |
+| `nginx/docker-entrypoint.d/05-cert-watch.sh` | Reloads nginx when the certificate is replaced |
 | `nginx/Dockerfile` | Image based on `nginx:stable-alpine` |
-| `nginx/snippets/ssl.conf` | Shared HTTPS settings (certificate, TLS, HSTS) |
-| `nginx/snippets/proxy-app.conf` | Shared proxy settings for the app sites |
-| `nginx/conf.d/00-backend.conf` | IIS backend address, shared settings, token-safe log format |
-| `nginx/conf.d/10-http.conf` | Port 80: accounts → https |
-| `nginx/conf.d/15-default.https.conf` | Port 443 catch-all: refuse unknown names |
-| `nginx/conf.d/20-accounts.https.conf` | accounts.opelikaschools.org → IIS |
-| `nginx/conf.d/30-test-9000.conf` | Status/test page on 9000, and on 80 by IP |
-| `nginx/conf.d/41-gat.https.conf` / `.http.conf` | GAT (password) |
-| `nginx/conf.d/42-upsmonitor.https.conf` / `.http.conf` | UPS Monitor |
-| `nginx/conf.d/43-iiqresponder.https.conf` / `.http.conf` | IIQ Responder |
-| `nginx/html/test/index.html` | The test page |
-| `nginx/docker-entrypoint.d/05-cert-watch.sh` | Switches sites on/off, reloads on certificate changes |
+| `docker-compose.yml` | Runs the proxy on the server |
 | `.github/workflows/build-proxy.yml` | Builds, tests (`nginx -t`) and pushes the image to GHCR |
+
+**Adding a site:** copy `upsmonitor.conf` to `newsite.conf`, change `server_name` and `proxy_pass`, add a DNS record, push. The wildcard certificate and the http→https redirect already cover any `*.opelikaschools.org` name.
+
+**Requirements on the server** (all in the provided `docker-compose.yml`): the certificate in `certs/`, the `extra_hosts` entry (UPS Monitor / IIQ Responder), and the `proxy-net` network (GAT). If GAT's password file is missing, GAT returns an error but the other sites keep working.
 
 ## Test page (port 9000)
 
@@ -132,7 +119,7 @@ Both run as their own containers and publish a port on the host (UPS Monitor 808
 
 - They are still reachable directly on `http://10.1.0.145:8084` / `:8082` (plain http). Closing those so everyone goes through https needs a small change in each app's compose file (join `proxy-net` like GAT) — not done yet.
 - UPS Monitor's syslog from the UPS cards (UDP 514) does not go through nginx.
-- To change a site's name, edit `server_name` (and the redirect) in its `.https.conf` and `.http.conf`.
+- To change a site's name, edit `server_name` in its file.
 
 ## Microsoft sign-in through the proxy (accounts)
 
@@ -149,12 +136,12 @@ Sign-in passes **through** the proxy; nginx never reads or stores credentials. U
 
 ## Configuration
 
-- **Backend:** `nginx/conf.d/00-backend.conf` (currently `10.11.1.69:443`).
-- **Names:** each site's name is in `server_name` (and its redirect) in its `.https.conf` / `.http.conf`; accounts also in `10-http.conf`.
+- **IIS address:** the `upstream` block in `nginx/conf.d/accounts.conf` (currently `10.11.1.69:443`).
+- **Names:** `server_name` in each site's file.
 
 ## Automatic builds
 
-Every push to GitHub (any branch) builds the image, checks the config with and without a certificate, and pushes it to GHCR. It also rebuilds every Monday at 06:00 UTC for nginx security patches, and can be run by hand from the Actions tab.
+Every push to GitHub (any branch) builds the image, checks the config (`nginx -t` with a throwaway certificate), and pushes it to GHCR. It also rebuilds every Monday at 06:00 UTC for nginx security patches, and can be run by hand from the Actions tab.
 
 | Tag | When |
 | --- | --- |
