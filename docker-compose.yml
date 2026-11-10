@@ -12,7 +12,8 @@ services:
       - ./certs:/certs:ro   # put fullchain.pem + privkey.pem here (see README)
       - ./auth:/auth:ro     # password files (gat.htpasswd)
     # Lets nginx reach other containers' published ports on this host as
-    # host.docker.internal - used by nginx/conf.d/40-other-apps.conf later.
+    # host.docker.internal - used for UPS Monitor (8084, 42-ups-monitor.conf)
+    # and by 40-other-apps.conf later.
     extra_hosts:
       - "host.docker.internal:host-gateway"
     networks:
@@ -26,3 +27,4 @@ networks:
 # Other apps on this server:
 #   IIQResponder  http://10.1.0.145:8082  (own login)
 #   GAT           http://10.1.0.145:8081  (through nginx, password above)
+#   UPS Monitor   http://ups.opelikaschools.org  (through nginx)  or  http://10.1.0.145:8084

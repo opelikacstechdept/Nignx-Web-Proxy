@@ -23,6 +23,7 @@ Port 443 switches on by itself as soon as the certificate exists, and nginx relo
 | `nginx/conf.d/20-accounts-443.conf` | Port 443: the real site |
 | `nginx/conf.d/30-test-9000.conf` | Status/test page on 9000, and on 80 by IP |
 | `nginx/conf.d/41-gat-8081.conf` | GAT on 8081 behind a password |
+| `nginx/conf.d/42-ups-monitor.conf` | UPS Monitor (8084) by name: `ups.opelikaschools.org` |
 | `nginx/conf.d/40-other-apps.conf` | Other apps on this host (8080/8081) by name — switched off for now |
 | `nginx/html/test/index.html` | The test page |
 | `nginx/docker-entrypoint.d/05-cert-watch.sh` | Finds the cert, turns 443 on when it exists, reloads on renewal |
@@ -73,6 +74,23 @@ Browse to `http://10.1.0.145:8081`.
 - **Change a password / remove a user:** edit `/opt/nginx-proxy/auth/gat.htpasswd` (one line per user), then re-add the user with step 3.
 - **No password file → port 8081 stays closed**, so GAT is never exposed without a password.
 - The password travels over plain http on the internal network. Once a certificate is in place this can move to https.
+
+## UPS Monitor by name
+
+[UPS Monitor](https://github.com/opelikacstechdept/UPS-Monitor) runs as its own container and publishes port 8084 on the host. nginx makes it available by name:
+
+- `http://ups.opelikaschools.org` → UPS Monitor (through nginx)
+- `http://10.1.0.145:8084` still works directly
+
+Setup:
+
+1. Internal DNS: an A record `ups.opelikaschools.org` → `10.1.0.145`.
+2. Nothing to change in UPS Monitor. nginx reaches it via `host.docker.internal:8084` (the `extra_hosts` entry in `docker-compose.yml`), and UPS Monitor's own login (`APP_USERNAME`/`APP_PASSWORD`) is passed straight through.
+3. On the proxy server: `docker compose pull && docker compose up -d` in `/opt/nginx-proxy`.
+
+To use a different name, change `server_name` in `nginx/conf.d/42-ups-monitor.conf` and push. If UPS Monitor moves off port 8084, change the `server` line in the same file. Only the web dashboard goes through nginx; syslog from the UPS cards (UDP 514) still goes directly to UPS Monitor.
+
+If the proxy's compose file is missing the `extra_hosts` entry, the UPS site is switched off at startup (logged) and every other site keeps working.
 
 ## Other apps on this server (8082 / 8081)
 

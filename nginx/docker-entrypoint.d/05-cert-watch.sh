@@ -16,6 +16,7 @@ CONF=/etc/nginx/conf.d/20-accounts-443.conf
 STATUS=/usr/share/nginx/test/status.json
 INTERVAL=${CERT_CHECK_INTERVAL:-300}   # seconds
 GAT_CONF=/etc/nginx/conf.d/41-gat-8081.conf
+UPS_CONF=/etc/nginx/conf.d/42-ups-monitor.conf
 GAT_AUTH=/auth/gat.htpasswd
 
 CERT_DIR=""
@@ -52,6 +53,16 @@ apply() {   # prints "yes" if the production site was switched on/off
         "$state" "$cert" "$(date -u '+%Y-%m-%d %H:%M:%S UTC')" > "$STATUS"
     echo "$changed"
 }
+
+# UPS Monitor is reached via host.docker.internal (extra_hosts in docker-compose.yml).
+# Without that entry nginx would refuse to start at all, so switch off just that site.
+if getent hosts host.docker.internal >/dev/null 2>&1; then
+    [ -f "$UPS_CONF.disabled" ] && mv "$UPS_CONF.disabled" "$UPS_CONF"
+    echo "05-cert-watch: host.docker.internal found - UPS Monitor site enabled"
+else
+    [ -f "$UPS_CONF" ] && mv "$UPS_CONF" "$UPS_CONF.disabled"
+    echo "05-cert-watch: WARNING host.docker.internal missing (add extra_hosts to docker-compose.yml) - UPS Monitor site DISABLED"
+fi
 
 fingerprint() { cat "$SSL_DIR/fullchain.pem" 2>/dev/null | md5sum | cut -d' ' -f1; }
 
