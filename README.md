@@ -5,9 +5,9 @@ The front end for the web apps on the Docker host **10.1.0.145**. nginx answers 
 | Site | Goes to | Login |
 | --- | --- | --- |
 | `https://accounts.opelikaschools.org` | IIS server `10.11.1.69:443` | Microsoft sign-in (the site's own) |
-| `https://gat.opelikaschools.org` | GAT, `gat-web-1:8080` | none |
-| `https://upsmonitor.opelikaschools.org` | UPS Monitor, `upsmonitor:8080` | UPS Monitor's own (`APP_USERNAME`/`APP_PASSWORD`) |
-| `https://iiqresponder.opelikaschools.org` | IIQ Responder, `iiqresponder:8080` | IIQ Responder's own (`App__Username`/`App__Password`) |
+| `https://gat.opelikaschools.org` | GAT, `gat:8080` | GAT's own Google sign-in |
+| `https://upsmonitor.opelikaschools.org` | UPS Monitor, `ups-monitor:8080` | UPS Monitor's own (`APP_USERNAME`/`APP_PASSWORD`) |
+| `https://iiqresponder.opelikaschools.org` | IIQ Responder, `iiq-responder:8080` | IIQ Responder's own (`App__Username`/`App__Password`) |
 | `http://10.1.0.145` or `:9000` | Status/test page served by nginx | none |
 
 - `http://` on any of these names redirects to `https://`. The old GAT address `http://10.1.0.145:8081` redirects to `https://gat.opelikaschools.org`.
@@ -82,8 +82,8 @@ GoDaddy certificates last about a year. Check the end date with the `openssl x50
 | `nginx/conf.d/00-common.conf` | Shared: certificate/TLS, proxy headers, http→https redirect for every name, refuse unknown names on 443 |
 | `nginx/conf.d/accounts.conf` | accounts.opelikaschools.org → IIS `10.11.1.69` |
 | `nginx/conf.d/gat.conf` | gat.opelikaschools.org → GAT, old `:8081` → https |
-| `nginx/conf.d/upsmonitor.conf` | upsmonitor.opelikaschools.org → `upsmonitor:8080` |
-| `nginx/conf.d/iiqresponder.conf` | iiqresponder.opelikaschools.org → `iiqresponder:8080` |
+| `nginx/conf.d/upsmonitor.conf` | upsmonitor.opelikaschools.org → `ups-monitor:8080` |
+| `nginx/conf.d/iiqresponder.conf` | iiqresponder.opelikaschools.org → `iiq-responder:8080` |
 | `nginx/conf.d/status.conf` | Status/test page on 80 by IP and on 9000 |
 | `nginx/html/test/index.html` | The status/test page |
 | `nginx/docker-entrypoint.d/05-cert-watch.sh` | Reloads nginx when the certificate is replaced |
@@ -101,48 +101,37 @@ GoDaddy certificates last about a year. Check the end date with the `openssl x50
 
 ## GAT
 
-GAT has no login of its own, and nginx doesn't add one: anyone who can reach `https://gat.opelikaschools.org` can use it. It publishes no port, so it's only reachable through nginx.
+GAT signs people in with Google itself (it needs `https://`, which nginx provides). nginx adds no login of its own.
 
 ## The apps' networks
 
-Each app has its **own private Docker network**; nginx is on all of them, each app only on its own. nginx reaches each app by name, the apps publish **no web ports**, and they **can't reach each other** — only nginx can reach them.
+Each app has its **own standalone Docker network**, named after the app. nginx joins all of them; each app is only on its own, so the apps **can't reach each other** — only nginx can. nginx reaches each app by its network name on port 8080.
 
 ```
-                ┌── proxy-gat ──────────> gat-web-1:8080
-nginx ──────────┼── proxy-upsmonitor ───> upsmonitor:8080
-                └── proxy-iiqresponder ─> iiqresponder:8080
+                ┌── gat ────────────> http://gat:8080
+nginx ──────────┼── ups-monitor ────> http://ups-monitor:8080
+                └── iiq-responder ──> http://iiq-responder:8080
 ```
 
-The networks are `--internal`: they carry only nginx↔app traffic. Each app keeps its normal (default) network for outbound access (iiQ API, MySQL, SNMP, alerts).
+Each app's own repository already sets this up in its `docker-compose.yml` (it joins its network with that alias, and publishes its web port on `127.0.0.1` only, so the server itself can still reach it but nothing else can):
 
-Create them once on the server:
+| App | Repository | Network | Direct (server only) |
+| --- | --- | --- | --- |
+| GAT | [Google-Drive-Audit](https://github.com/opelikacstechdept/Google-Drive-Audit) | `gat` | `127.0.0.1:8080` |
+| UPS Monitor | [UPS-Monitor](https://github.com/opelikacstechdept/UPS-Monitor) | `ups-monitor` | `127.0.0.1:8084` |
+| IIQ Responder | [IIQ-Responder](https://github.com/opelikacstechdept/IIQ-Responder) | `iiq-responder` | `127.0.0.1:8082` |
+
+Create the networks once on the server (UPS Monitor's `deploy/update.sh` also creates its own):
 
 ```bash
-docker network create --internal proxy-gat
-docker network create --internal proxy-upsmonitor
-docker network create --internal proxy-iiqresponder
+docker network create gat
+docker network create ups-monitor
+docker network create iiq-responder
 ```
 
-In each app's own compose file: remove the web `ports:` line, and join its network with a fixed name (alias) — the name nginx uses:
-
-```yaml
-services:
-  app:                        # the app's existing service, unchanged otherwise
-    networks:
-      default:
-      proxy-upsmonitor:       # proxy-gat / proxy-iiqresponder for the others
-        aliases: [upsmonitor] # iiqresponder for IIQ Responder (GAT: none needed)
-networks:
-  proxy-upsmonitor:
-    external: true
-```
-
-Then `docker compose up -d` in that app's folder.
-
-- UPS Monitor keeps its **syslog** port (`514:5514/udp`) published — the UPS cards send to it directly, not through nginx.
-- UPS Monitor's and IIQ Responder's own logins pass straight through nginx, encrypted by https.
-- GAT is reached by its container name `gat-web-1`.
-- **Adding an app:** create `proxy-<app>` the same way, add it to the proxy's `docker-compose.yml`, and add a site file.
+- UPS Monitor keeps its **syslog** port (`514/udp`) open to the network — the UPS cards send to it directly, not through nginx.
+- Each app's own login (GAT's Google sign-in, UPS Monitor's and IIQ Responder's passwords) passes straight through nginx, encrypted by https. GAT needs `GOOGLE_AUDIT_Web__BehindProxy=true` in its `.env` and `https://gat.opelikaschools.org/signin-google` as a redirect URI on its Google sign-in client.
+- **Adding an app:** give it its own standalone network with an alias in its compose file, add the network to `docker-compose.yml` here, and add a site file.
 
 ## Microsoft sign-in through the proxy (accounts)
 

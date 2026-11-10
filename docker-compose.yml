@@ -11,25 +11,26 @@ services:
     volumes:
       - ./certs:/certs:ro   # fullchain.pem + privkey.pem (wildcard *.opelikaschools.org)
     networks:
-      default:                # outbound (IIS at 10.11.1.69) and published ports
-      proxy-gat:              # one private network per app: nginx is on all of them,
-      proxy-upsmonitor:       # each app only on its own, so apps can't reach
-      proxy-iiqresponder:     # each other - only nginx can reach them
+      default:          # outbound (IIS at 10.11.1.69) and published ports
+      gat:              # each app has its own network, shared only with nginx,
+      ups-monitor:      # so the apps can't reach each other - only nginx can
+      iiq-responder:    # reach them (at http://<network name>:8080)
 
-# Create once on the server (internal = no traffic in/out except between members):
-#   docker network create --internal proxy-gat
-#   docker network create --internal proxy-upsmonitor
-#   docker network create --internal proxy-iiqresponder
+# Each app's own standalone network, created once on the server (UPS Monitor's
+# deploy/update.sh creates its own):
+#   docker network create gat
+#   docker network create ups-monitor
+#   docker network create iiq-responder
 networks:
-  proxy-gat:
+  gat:
     external: true
-  proxy-upsmonitor:
+  ups-monitor:
     external: true
-  proxy-iiqresponder:
+  iiq-responder:
     external: true
 
 # Sites (each needs an internal DNS record pointing at this server):
 #   https://accounts.opelikaschools.org      -> IIS 10.11.1.69
-#   https://gat.opelikaschools.org           -> gat-web-1:8080     (proxy-gat), no login
-#   https://upsmonitor.opelikaschools.org    -> upsmonitor:8080    (proxy-upsmonitor), its own login
-#   https://iiqresponder.opelikaschools.org  -> iiqresponder:8080  (proxy-iiqresponder), its own login
+#   https://gat.opelikaschools.org           -> http://gat:8080            GAT's Google sign-in
+#   https://upsmonitor.opelikaschools.org    -> http://ups-monitor:8080    UPS Monitor's login
+#   https://iiqresponder.opelikaschools.org  -> http://iiq-responder:8080  IIQ Responder's login
