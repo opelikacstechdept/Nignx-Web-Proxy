@@ -4,16 +4,15 @@ services:
     container_name: intranet-proxy
     restart: unless-stopped
     ports:
-      - "80:80"       # status page by IP; accounts.opelikaschools.org -> https
-      - "443:443"     # https://accounts.opelikaschools.org (on once a cert is in ./certs)
-      - "9000:9000"   # test page (http) - remove this line to turn it off
-      - "8081:8081"   # GAT, password protected (needs ./auth/gat.htpasswd)
+      - "80:80"       # http -> https redirects; status page by IP
+      - "443:443"     # https sites (wildcard cert in ./certs)
+      - "9000:9000"   # status/test page (http) - remove this line to turn it off
+      - "8081:8081"   # old GAT address -> redirects to https://gat.opelikaschools.org
     volumes:
-      - ./certs:/certs:ro   # put fullchain.pem + privkey.pem here (see README)
-      - ./auth:/auth:ro     # password files (gat.htpasswd)
-    # Lets nginx reach other containers' published ports on this host as
-    # host.docker.internal - used for UPS Monitor (8084, 42-ups-monitor.conf)
-    # and by 40-other-apps.conf later.
+      - ./certs:/certs:ro   # fullchain.pem + privkey.pem (wildcard *.opelikaschools.org)
+      - ./auth:/auth:ro     # gat.htpasswd (GAT's username/password)
+    # Lets nginx reach the apps' published ports on this host
+    # (UPS Monitor 8084, IIQ Responder 8082) as host.docker.internal.
     extra_hosts:
       - "host.docker.internal:host-gateway"
     networks:
@@ -24,7 +23,8 @@ networks:
   proxy-net:
     external: true            # create once: docker network create proxy-net
 
-# Other apps on this server:
-#   IIQResponder  http://10.1.0.145:8082  (own login)
-#   GAT           http://10.1.0.145:8081  (through nginx, password above)
-#   UPS Monitor   http://ups.opelikaschools.org  (through nginx)  or  http://10.1.0.145:8084
+# Sites (each needs an internal DNS record pointing at this server):
+#   https://accounts.opelikaschools.org      -> IIS 10.11.1.69
+#   https://gat.opelikaschools.org           -> GAT (gat-web-1, via proxy-net), nginx password
+#   https://upsmonitor.opelikaschools.org    -> UPS Monitor (host port 8084), its own login
+#   https://iiqresponder.opelikaschools.org  -> IIQ Responder (host port 8082), its own login
