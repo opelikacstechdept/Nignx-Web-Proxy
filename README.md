@@ -91,9 +91,9 @@ GoDaddy certificates last about a year. Check the end date with the `openssl x50
 | `docker-compose.yml` | Runs the proxy on the server |
 | `.github/workflows/build-proxy.yml` | Builds, tests (`nginx -t`) and pushes the image to GHCR |
 
-**Adding a site:** put the app on `proxy-net` with a network alias (below), copy `upsmonitor.conf` to `newsite.conf`, change `server_name` and the `set $app` line, add a DNS record, push. The wildcard certificate and the http→https redirect already cover any `*.opelikaschools.org` name.
+**Adding a site:** give the app its own network with an alias (below), copy `upsmonitor.conf` to `newsite.conf`, change `server_name` and the `set $app` line, add a DNS record, push. The wildcard certificate and the http→https redirect already cover any `*.opelikaschools.org` name.
 
-**Requirements on the server:** the certificate in `certs/` and the `proxy-net` network (`docker network create proxy-net`, once). If an app is down, only that site shows an error; the others keep working.
+**Requirements on the server:** the certificate in `certs/` and the three app networks (below). If an app is down, only that site shows an error; the others keep working.
 
 ## Test page (port 9000)
 
@@ -103,35 +103,46 @@ GoDaddy certificates last about a year. Check the end date with the `openssl x50
 
 GAT has no login of its own, and nginx doesn't add one: anyone who can reach `https://gat.opelikaschools.org` can use it. It publishes no port, so it's only reachable through nginx.
 
-## The apps' network (proxy-net)
+## The apps' networks
 
-nginx and every app container share one Docker network, `proxy-net`. nginx reaches each app **by name** inside Docker; the apps publish **no web ports** on the server, so the only way in is through nginx and https.
+Each app has its **own private Docker network**; nginx is on all of them, each app only on its own. nginx reaches each app by name, the apps publish **no web ports**, and they **can't reach each other** — only nginx can reach them.
 
 ```
-browser ──https──> nginx ──proxy-net──> gat-web-1:8080 / upsmonitor:8080 / iiqresponder:8080
+                ┌── proxy-gat ──────────> gat-web-1:8080
+nginx ──────────┼── proxy-upsmonitor ───> upsmonitor:8080
+                └── proxy-iiqresponder ─> iiqresponder:8080
 ```
 
-Create the network once: `docker network create proxy-net`.
+The networks are `--internal`: they carry only nginx↔app traffic. Each app keeps its normal (default) network for outbound access (iiQ API, MySQL, SNMP, alerts).
 
-In each app's own compose file: remove the web `ports:` line, and join `proxy-net` with a fixed name (alias) — the name nginx uses:
+Create them once on the server:
+
+```bash
+docker network create --internal proxy-gat
+docker network create --internal proxy-upsmonitor
+docker network create --internal proxy-iiqresponder
+```
+
+In each app's own compose file: remove the web `ports:` line, and join its network with a fixed name (alias) — the name nginx uses:
 
 ```yaml
 services:
   app:                        # the app's existing service, unchanged otherwise
     networks:
       default:
-      proxy-net:
-        aliases: [upsmonitor] # iiqresponder for IIQ Responder
+      proxy-upsmonitor:       # proxy-gat / proxy-iiqresponder for the others
+        aliases: [upsmonitor] # iiqresponder for IIQ Responder (GAT: none needed)
 networks:
-  proxy-net:
+  proxy-upsmonitor:
     external: true
 ```
 
-Then `docker compose up -d` in that app's folder. Each app listens on 8080 inside its container.
+Then `docker compose up -d` in that app's folder.
 
 - UPS Monitor keeps its **syslog** port (`514:5514/udp`) published — the UPS cards send to it directly, not through nginx.
 - UPS Monitor's and IIQ Responder's own logins pass straight through nginx, encrypted by https.
-- GAT is reached by its container name `gat-web-1` (no alias needed).
+- GAT is reached by its container name `gat-web-1`.
+- **Adding an app:** create `proxy-<app>` the same way, add it to the proxy's `docker-compose.yml`, and add a site file.
 
 ## Microsoft sign-in through the proxy (accounts)
 
