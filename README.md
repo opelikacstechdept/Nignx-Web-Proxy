@@ -5,9 +5,9 @@ The front end for the web apps on the Docker host **10.1.0.145**. nginx answers 
 | Site | Goes to | Login |
 | --- | --- | --- |
 | `https://accounts.opelikaschools.org` | IIS server `10.11.1.69:443` | Microsoft sign-in (the site's own) |
-| `https://gat.opelikaschools.org` | GAT container `gat-web-1` (over the `proxy-net` network) | nginx username/password (`auth/gat.htpasswd`) |
-| `https://upsmonitor.opelikaschools.org` | UPS Monitor, host port 8084 | UPS Monitor's own (`APP_USERNAME`/`APP_PASSWORD`) |
-| `https://iiqresponder.opelikaschools.org` | IIQ Responder, host port 8082 | IIQ Responder's own (`App__Username`/`App__Password`) |
+| `https://gat.opelikaschools.org` | GAT, `gat-web-1:8080` | nginx username/password (`auth/gat.htpasswd`) |
+| `https://upsmonitor.opelikaschools.org` | UPS Monitor, `upsmonitor:8080` | UPS Monitor's own (`APP_USERNAME`/`APP_PASSWORD`) |
+| `https://iiqresponder.opelikaschools.org` | IIQ Responder, `iiqresponder:8080` | IIQ Responder's own (`App__Username`/`App__Password`) |
 | `http://10.1.0.145` or `:9000` | Status/test page served by nginx | none |
 
 - `http://` on any of these names redirects to `https://`. The old GAT address `http://10.1.0.145:8081` redirects to `https://gat.opelikaschools.org`.
@@ -82,8 +82,8 @@ GoDaddy certificates last about a year. Check the end date with the `openssl x50
 | `nginx/conf.d/00-common.conf` | Shared: certificate/TLS, proxy headers, http→https redirect for every name, refuse unknown names on 443 |
 | `nginx/conf.d/accounts.conf` | accounts.opelikaschools.org → IIS `10.11.1.69` |
 | `nginx/conf.d/gat.conf` | gat.opelikaschools.org → GAT (password), old `:8081` → https |
-| `nginx/conf.d/upsmonitor.conf` | upsmonitor.opelikaschools.org → host port 8084 |
-| `nginx/conf.d/iiqresponder.conf` | iiqresponder.opelikaschools.org → host port 8082 |
+| `nginx/conf.d/upsmonitor.conf` | upsmonitor.opelikaschools.org → `upsmonitor:8080` |
+| `nginx/conf.d/iiqresponder.conf` | iiqresponder.opelikaschools.org → `iiqresponder:8080` |
 | `nginx/conf.d/status.conf` | Status/test page on 80 by IP and on 9000 |
 | `nginx/html/test/index.html` | The status/test page |
 | `nginx/docker-entrypoint.d/05-cert-watch.sh` | Reloads nginx when the certificate is replaced |
@@ -91,9 +91,9 @@ GoDaddy certificates last about a year. Check the end date with the `openssl x50
 | `docker-compose.yml` | Runs the proxy on the server |
 | `.github/workflows/build-proxy.yml` | Builds, tests (`nginx -t`) and pushes the image to GHCR |
 
-**Adding a site:** copy `upsmonitor.conf` to `newsite.conf`, change `server_name` and `proxy_pass`, add a DNS record, push. The wildcard certificate and the http→https redirect already cover any `*.opelikaschools.org` name.
+**Adding a site:** put the app on `proxy-net` with a network alias (below), copy `upsmonitor.conf` to `newsite.conf`, change `server_name` and the `set $app` line, add a DNS record, push. The wildcard certificate and the http→https redirect already cover any `*.opelikaschools.org` name.
 
-**Requirements on the server** (all in the provided `docker-compose.yml`): the certificate in `certs/`, the `extra_hosts` entry (UPS Monitor / IIQ Responder), and the `proxy-net` network (GAT). If GAT's password file is missing, GAT returns an error but the other sites keep working.
+**Requirements on the server:** the certificate in `certs/` and the `proxy-net` network (`docker network create proxy-net`, once). If an app or GAT's password file is missing, only that site shows an error; the others keep working.
 
 ## Test page (port 9000)
 
@@ -101,9 +101,7 @@ GoDaddy certificates last about a year. Check the end date with the `openssl x50
 
 ## GAT (password)
 
-GAT has no login of its own, so nginx asks for a username and password before passing anyone through. GAT publishes no port of its own; nginx reaches it as `gat-web-1:8080` over the shared Docker network `proxy-net`, so the password can't be bypassed.
-
-One-time setup: `docker network create proxy-net`; in GAT's compose file remove `ports:` and add the `proxy-net` network (to the `web` service and as `external: true` at the bottom).
+GAT has no login of its own, so nginx asks for a username and password before passing anyone through. GAT publishes no port, so the password can't be bypassed.
 
 Users are in `/opt/nginx-proxy/auth/gat.htpasswd`:
 
@@ -113,13 +111,35 @@ Users are in `/opt/nginx-proxy/auth/gat.htpasswd`:
   ```
 - **Remove a user / change a password:** delete their line (`sudo nano /opt/nginx-proxy/auth/gat.htpasswd`), then add them again.
 
-## UPS Monitor and IIQ Responder
+## The apps' network (proxy-net)
 
-Both run as their own containers and publish a port on the host (UPS Monitor 8084, IIQ Responder 8082). nginx reaches them through `host.docker.internal` (the `extra_hosts` entry in `docker-compose.yml`); nothing needs to change in those apps. Their own logins pass straight through nginx. Over https those passwords are now encrypted.
+nginx and every app container share one Docker network, `proxy-net`. nginx reaches each app **by name** inside Docker; the apps publish **no web ports** on the server, so the only way in is through nginx and https.
 
-- They are still reachable directly on `http://10.1.0.145:8084` / `:8082` (plain http). Closing those so everyone goes through https needs a small change in each app's compose file (join `proxy-net` like GAT) — not done yet.
-- UPS Monitor's syslog from the UPS cards (UDP 514) does not go through nginx.
-- To change a site's name, edit `server_name` in its file.
+```
+browser ──https──> nginx ──proxy-net──> gat-web-1:8080 / upsmonitor:8080 / iiqresponder:8080
+```
+
+Create the network once: `docker network create proxy-net`.
+
+In each app's own compose file: remove the web `ports:` line, and join `proxy-net` with a fixed name (alias) — the name nginx uses:
+
+```yaml
+services:
+  app:                        # the app's existing service, unchanged otherwise
+    networks:
+      default:
+      proxy-net:
+        aliases: [upsmonitor] # iiqresponder for IIQ Responder
+networks:
+  proxy-net:
+    external: true
+```
+
+Then `docker compose up -d` in that app's folder. Each app listens on 8080 inside its container.
+
+- UPS Monitor keeps its **syslog** port (`514:5514/udp`) published — the UPS cards send to it directly, not through nginx.
+- Apps' own logins pass straight through nginx, encrypted by https.
+- GAT is reached by its container name `gat-web-1` (no alias needed).
 
 ## Microsoft sign-in through the proxy (accounts)
 
