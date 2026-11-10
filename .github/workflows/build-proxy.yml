@@ -8,6 +8,7 @@ on:
 
 env:
   IMAGE_NAME: ghcr.io/${{ github.repository }}/intranet-proxy
+  UPDATER_IMAGE: ghcr.io/${{ github.repository }}/updater
 
 permissions:
   contents: read
@@ -66,3 +67,26 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
+
+      # The updater (keeps every compose app on the server up to date)
+      - name: Check updater script
+        run: sh -n updater/update-apps.sh
+
+      - name: Updater tags
+        id: meta-updater
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.UPDATER_IMAGE }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=ref,event=branch
+            type=sha,format=short
+
+      - name: Push updater image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./updater
+          pull: true
+          push: true
+          tags: ${{ steps.meta-updater.outputs.tags }}
+          labels: ${{ steps.meta-updater.outputs.labels }}

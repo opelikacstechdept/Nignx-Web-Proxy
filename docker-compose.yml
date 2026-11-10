@@ -16,6 +16,21 @@ services:
       ups-monitor:      # so the apps can't reach each other - only nginx can
       iiq-responder:    # reach them (at http://<network name>:8080)
 
+  # Keeps every compose app on this server up to date by itself: every 15 minutes it
+  # pulls newer images (built by each repo's GitHub Actions) for the proxy, GAT,
+  # IIQ Responder, UPS Monitor, ... and recreates only containers whose image changed.
+  updater:
+    image: ghcr.io/opelikacstechdept/nignx-web-proxy/updater:latest
+    container_name: updater
+    restart: unless-stopped
+    environment:
+      INTERVAL: "900"         # seconds between checks
+      SKIP_PROJECTS: ""       # compose project names to leave alone, e.g. "iiq-assets"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock   # controls Docker (as root) - keep this host locked down
+      - /opt:/opt                                    # the apps' folders, at the same path as on the server
+      - ${HOME}/.docker:/root/.docker:ro             # the server's ghcr.io login (docker login ghcr.io)
+
 # Each app's own standalone network, created once on the server (UPS Monitor's
 # deploy/update.sh creates its own):
 #   docker network create gat

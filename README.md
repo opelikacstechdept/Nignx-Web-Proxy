@@ -88,7 +88,8 @@ GoDaddy certificates last about a year. Check the end date with the `openssl x50
 | `nginx/html/test/index.html` | The status/test page |
 | `nginx/docker-entrypoint.d/05-cert-watch.sh` | Reloads nginx when the certificate is replaced |
 | `nginx/Dockerfile` | Image based on `nginx:stable-alpine` |
-| `docker-compose.yml` | Runs the proxy on the server |
+| `docker-compose.yml` | Runs the proxy and the updater on the server |
+| `updater/` | The updater image: keeps every compose app on the server up to date |
 | `.github/workflows/build-proxy.yml` | Builds, tests (`nginx -t`) and pushes the image to GHCR |
 
 **Adding a site:** give the app its own network with an alias (below), copy `upsmonitor.conf` to `newsite.conf`, change `server_name` and the `set $app` line, add a DNS record, push. The wildcard certificate and the http→https redirect already cover any `*.opelikaschools.org` name.
@@ -133,6 +134,26 @@ docker network create iiq-responder
 - Each app's own login (GAT's Google sign-in, UPS Monitor's and IIQ Responder's passwords) passes straight through nginx, encrypted by https. GAT needs `GOOGLE_AUDIT_Web__BehindProxy=true` in its `.env` and `https://gat.opelikaschools.org/signin-google` as a redirect URI on its Google sign-in client.
 - **Adding an app:** give it its own standalone network with an alias in its compose file, add the network to `docker-compose.yml` here, and add a site file.
 
+## Automatic updates (updater)
+
+Nobody needs to run update commands on the server. The `updater` container (in `docker-compose.yml`) checks every 15 minutes:
+
+1. It finds every running Docker Compose project on the server — the proxy, GAT, IIQ Responder, UPS Monitor, iiq-assets, … — by the folder each was started from.
+2. It runs `docker compose pull` there, getting any newer image that the app's GitHub Actions published.
+3. It recreates **only** the containers whose image changed. Apps with nothing new aren't touched; on-demand services (e.g. GAT's console `tools` profile) aren't started.
+
+It also updates the proxy and itself, and removes old unused images afterwards. Its log:
+
+```bash
+docker logs updater
+```
+
+- **Skip an app:** put its compose project name in `SKIP_PROJECTS` (e.g. `"iiq-assets"`) in `docker-compose.yml`.
+- **Check more or less often:** `INTERVAL` (seconds).
+- **Requirements:** the apps' folders are under `/opt` (mounted at the same path), and the server is logged in to ghcr.io (`docker login ghcr.io` as the user that runs `docker compose`; the updater reads that login from `~/.docker`).
+- **Changes to an app's `docker-compose.yml` itself** (ports, networks, …) aren't picked up automatically — only new images. Those are rare; apply them with `docker compose up -d` in the app's folder.
+- The updater controls Docker through its socket (root-level access to this host), like any such tool. Its image is built from `updater/` in this repo.
+
 ## Microsoft sign-in through the proxy (accounts)
 
 How the sign-in round trip is handled:
@@ -153,7 +174,7 @@ Sign-in passes **through** the proxy; nginx never reads or stores credentials. U
 
 ## Automatic builds
 
-Every push to GitHub (any branch) builds the image, checks the config (`nginx -t` with a throwaway certificate), and pushes it to GHCR. It also rebuilds every Monday at 06:00 UTC for nginx security patches, and can be run by hand from the Actions tab.
+Every push to GitHub (any branch) builds the proxy image, checks the config (`nginx -t` with a throwaway certificate), and pushes it and the updater image to GHCR. It also rebuilds every Monday at 06:00 UTC for nginx security patches, and can be run by hand from the Actions tab.
 
 | Tag | When |
 | --- | --- |
