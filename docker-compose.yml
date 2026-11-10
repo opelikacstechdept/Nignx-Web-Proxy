@@ -10,7 +10,6 @@ services:
       - "8081:8081"   # old GAT address -> redirects to https://gat.opelikaschools.org
     volumes:
       - ./certs:/certs:ro   # fullchain.pem + privkey.pem (wildcard *.opelikaschools.org)
-      - ./auth:/auth:ro     # gat.htpasswd (GAT's username/password)
     networks:
       - default
       - proxy-net             # shared with the apps, so nginx reaches them by name
@@ -21,6 +20,6 @@ networks:
 
 # Sites (each needs an internal DNS record pointing at this server):
 #   https://accounts.opelikaschools.org      -> IIS 10.11.1.69
-#   https://gat.opelikaschools.org           -> gat-web-1:8080     (proxy-net), nginx password
+#   https://gat.opelikaschools.org           -> gat-web-1:8080     (proxy-net), no login
 #   https://upsmonitor.opelikaschools.org    -> upsmonitor:8080    (proxy-net), its own login
 #   https://iiqresponder.opelikaschools.org  -> iiqresponder:8080  (proxy-net), its own login

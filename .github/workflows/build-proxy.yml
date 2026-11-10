@@ -35,13 +35,12 @@ jobs:
       # so a broken config never reaches the registry
       - name: Test nginx config
         run: |
-          # Throwaway wildcard cert + GAT password file, mounted like on the server
-          mkdir -p test-certs test-auth
+          # Throwaway wildcard cert, mounted like on the server
+          mkdir -p test-certs
           openssl req -x509 -nodes -newkey rsa:2048 -days 1 -subj "/CN=*.opelikaschools.org" \
             -keyout test-certs/privkey.pem -out test-certs/fullchain.pem
-          printf 'test:%s\n' "$(openssl passwd -6 test)" > test-auth/gat.htpasswd
           docker run --rm \
-            -v "$PWD/test-certs:/certs:ro" -v "$PWD/test-auth:/auth:ro" intranet-proxy:test nginx -t
+            -v "$PWD/test-certs:/certs:ro" intranet-proxy:test nginx -t
 
       - uses: docker/login-action@v3
         with:
