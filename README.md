@@ -16,28 +16,40 @@ The front end for the web apps on the Docker host **10.1.0.145**. nginx answers 
 
 ## The certificate
 
-One wildcard certificate covers every site. On the proxy server it lives in **`/opt/nginx-proxy/certs/`** as two files:
+One **GoDaddy wildcard certificate** (`*.opelikaschools.org`) covers every site. GoDaddy is a public CA, so every PC, Chromebook and phone trusts it with nothing to deploy.
+
+On the proxy server it lives in **`/opt/nginx-proxy/certs/`** as two files:
 
 | File | Contents |
 | --- | --- |
-| `fullchain.pem` | The certificate, followed by the issuing CA's intermediate certificate(s) |
-| `privkey.pem` | The private key (unencrypted) |
+| `fullchain.pem` | The certificate, followed by GoDaddy's intermediate bundle |
+| `privkey.pem` | The private key (unencrypted, `chmod 600`) |
 
-Within 5 minutes of the files appearing (or being replaced, e.g. renewal) the proxy switches every site to HTTPS and reloads by itself — no restart. Until they exist, the app sites run on plain http by name and `accounts` stays off.
+Within 5 minutes of the files appearing or being replaced (renewal) the proxy switches every site to HTTPS and reloads by itself — no restart. Until they exist, the app sites run on plain http by name and `accounts` stays off.
 
-Converting what your CA or vendor gave you (run in `/opt/nginx-proxy/certs/`):
+### Installing / renewing (GoDaddy)
 
-- **`.pfx` / `.p12`** (e.g. exported from Windows with the private key):
-  ```bash
-  sudo openssl pkcs12 -in /path/to/wildcard.pfx -nokeys -out fullchain.pem && sudo openssl pkcs12 -in /path/to/wildcard.pfx -nocerts -nodes -out privkey.pem && sudo chmod 600 privkey.pem
-  ```
-- **Separate files** (`wildcard.crt` + CA chain `.crt` + `.key`):
-  ```bash
-  sudo sh -c 'cat wildcard.crt ca-chain.crt > fullchain.pem && cp wildcard.key privkey.pem && chmod 600 privkey.pem'
-  ```
-  If a `.cer`/`.crt` is binary (DER), convert it first: `openssl x509 -inform der -in file.cer -out file.pem`.
+GoDaddy's download (server type **Apache** / **Other**) contains the certificate (e.g. `<serial>.pem` or `<serial>.crt`) and the intermediate bundle (`gd_bundle-*.crt`). **GoDaddy never has the private key** — it was created with the certificate request and is kept in a `.pfx` backup (see below).
 
-Check what's installed:
+Copy the files to the server's home folder, then:
+
+```bash
+sudo sh -c 'cat ~localadmin/CERT.pem ~localadmin/gd_bundle*.pem > /opt/nginx-proxy/certs/fullchain.pem'
+```
+
+```bash
+openssl pkcs12 -in ~/KEY-BACKUP.pfx -nocerts -nodes | sudo tee /opt/nginx-proxy/certs/privkey.pem >/dev/null && sudo chmod 600 /opt/nginx-proxy/certs/privkey.pem
+```
+
+(Older Windows-made `.pfx` files may need `-legacy` after `pkcs12`.) For a renewal with the same key, only the first command is needed.
+
+Check the certificate and key belong together — must print `YES`:
+
+```bash
+[ "$(sudo openssl x509 -in /opt/nginx-proxy/certs/fullchain.pem -noout -pubkey | sha256sum)" = "$(sudo openssl pkey -in /opt/nginx-proxy/certs/privkey.pem -pubout | sha256sum)" ] && echo YES || echo "NO - wrong key"
+```
+
+Check what's installed and what the proxy did:
 
 ```bash
 openssl x509 -in /opt/nginx-proxy/certs/fullchain.pem -noout -subject -issuer -enddate -ext subjectAltName
@@ -46,6 +58,22 @@ openssl x509 -in /opt/nginx-proxy/certs/fullchain.pem -noout -subject -issuer -e
 ```bash
 docker logs intranet-proxy 2>&1 | grep 05-cert
 ```
+
+Afterwards remove the copies in the home folder (`rm ~/*.pfx ~/*.pem`) — the server only needs the two files in `certs/`.
+
+### The private key backup
+
+Keep **one** copy of the `.pfx` (certificate + private key) somewhere safe and locked down (password manager or restricted admin share). It's the only backup of the key: without it, a rebuilt or second server means re-keying with GoDaddy. Don't keep stray copies in Downloads or home folders.
+
+**Lost the key?** Re-key the certificate on GoDaddy (free): make a new key and request on the proxy server, paste the request into GoDaddy → SSL Certificates → Re-key & Manage, then install the reissued certificate as above. Re-keying revokes the old certificate, so anything else still using it must be updated too.
+
+```bash
+sudo mkdir -p /opt/nginx-proxy/certs/pending && cd /opt/nginx-proxy/certs/pending && sudo openssl req -new -newkey rsa:2048 -nodes -subj "/CN=*.opelikaschools.org" -keyout wildcard.key -out wildcard.csr && sudo chmod 600 wildcard.key && cat wildcard.csr
+```
+
+### Renewal
+
+GoDaddy certificates last about a year. Check the end date with the `openssl x509 ... -enddate` command above, renew on GoDaddy before it, and install the new certificate as above.
 
 ## How sites switch on and off
 
@@ -78,7 +106,6 @@ The startup log lists which sites are on and off.
 | `nginx/conf.d/43-iiqresponder.https.conf` / `.http.conf` | IIQ Responder |
 | `nginx/html/test/index.html` | The test page |
 | `nginx/docker-entrypoint.d/05-cert-watch.sh` | Switches sites on/off, reloads on certificate changes |
-| `scripts/make-internal-cert.sh` | Optional: internal CA + certificate (not needed with the wildcard) |
 | `.github/workflows/build-proxy.yml` | Builds, tests (`nginx -t`) and pushes the image to GHCR |
 
 ## Test page (port 9000)
