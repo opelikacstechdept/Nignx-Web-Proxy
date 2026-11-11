@@ -8,6 +8,7 @@ The front end for the web apps on the Docker host **10.1.0.145**. nginx answers 
 | `https://gat.opelikaschools.org` | GAT, `gat:8080` | GAT's own Google sign-in |
 | `https://upsmonitor.opelikaschools.org` | UPS Monitor, `ups-monitor:8080` | UPS Monitor's own (`APP_USERNAME`/`APP_PASSWORD`) |
 | `https://iiqresponder.opelikaschools.org` | IIQ Responder, `iiq-responder:8080` | IIQ Responder's own (`App__Username`/`App__Password`) |
+| `https://iiqassets.opelikaschools.org` | iiQ Assets, `iiq-assets:8080` | iiQ Assets' own (`App__Username`/`App__Password`) |
 | `http://10.1.0.145` or `:9000` | Status/test page served by nginx | none |
 
 - `http://` on any of these names redirects to `https://`. The old GAT address `http://10.1.0.145:8081` redirects to `https://gat.opelikaschools.org`.
@@ -84,6 +85,7 @@ GoDaddy certificates last about a year. Check the end date with the `openssl x50
 | `nginx/conf.d/gat.conf` | gat.opelikaschools.org → GAT, old `:8081` → https |
 | `nginx/conf.d/upsmonitor.conf` | upsmonitor.opelikaschools.org → `ups-monitor:8080` |
 | `nginx/conf.d/iiqresponder.conf` | iiqresponder.opelikaschools.org → `iiq-responder:8080` |
+| `nginx/conf.d/iiqassets.conf` | iiqassets.opelikaschools.org → `iiq-assets:8080` |
 | `nginx/conf.d/status.conf` | Status/test page on 80 by IP and on 9000 |
 | `nginx/html/test/index.html` | The status/test page |
 | `nginx/docker-entrypoint.d/05-cert-watch.sh` | Reloads nginx when the certificate is replaced |
@@ -111,7 +113,8 @@ Each app has its **own standalone Docker network**, named after the app. nginx j
 ```
                 ┌── gat ────────────> http://gat:8080
 nginx ──────────┼── ups-monitor ────> http://ups-monitor:8080
-                └── iiq-responder ──> http://iiq-responder:8080
+                ├── iiq-responder ──> http://iiq-responder:8080
+                └── iiq-assets ─────> http://iiq-assets:8080
 ```
 
 Each app's own repository already sets this up in its `docker-compose.yml` (it joins its network with that alias, and publishes its web port on `127.0.0.1` only, so the server itself can still reach it but nothing else can):
@@ -121,6 +124,7 @@ Each app's own repository already sets this up in its `docker-compose.yml` (it j
 | GAT | [Google-Drive-Audit](https://github.com/opelikacstechdept/Google-Drive-Audit) | `gat` | `127.0.0.1:8080` |
 | UPS Monitor | [UPS-Monitor](https://github.com/opelikacstechdept/UPS-Monitor) | `ups-monitor` | `127.0.0.1:8084` |
 | IIQ Responder | [IIQ-Responder](https://github.com/opelikacstechdept/IIQ-Responder) | `iiq-responder` | `127.0.0.1:8082` |
+| iiQ Assets | [IIQ-Assets-Reports](https://github.com/opelikacstechdept/IIQ-Assets-Reports) | `iiq-assets` | `127.0.0.1:8083` |
 
 Create the networks once on the server (UPS Monitor's `deploy/update.sh` also creates its own):
 
@@ -128,6 +132,7 @@ Create the networks once on the server (UPS Monitor's `deploy/update.sh` also cr
 docker network create gat
 docker network create ups-monitor
 docker network create iiq-responder
+docker network create iiq-assets
 ```
 
 - UPS Monitor keeps its **syslog** port (`514/udp`) open to the network — the UPS cards send to it directly, not through nginx.
@@ -164,6 +169,7 @@ printf '%s' 'PASTE-TOKEN-HERE' > /opt/nginx-proxy/github-token && chmod 600 /opt
 | `/opt/nginx-proxy` | `Nignx-Web-Proxy` |
 | GAT's folder | `Google-Drive-Audit` |
 | `/opt/iiq-responder` | `IIQ-Responder` |
+| `/opt/iiq-assets` | `IIQ-Assets-Reports` |
 | UPS Monitor's folder | `UPS-Monitor` (usually a checkout already) |
 
 ```bash
@@ -180,7 +186,7 @@ docker compose up -d
 
 ### Settings and notes
 
-- **Skip an app:** its compose project name in `SKIP_PROJECTS` (e.g. `"iiq-assets"`), **check more or less often:** `INTERVAL` (seconds) — both in `docker-compose.yml` (so: on GitHub).
+- **Skip an app:** its compose project name in `SKIP_PROJECTS` (e.g. `"my-test-app"`), **check more or less often:** `INTERVAL` (seconds) — both in `docker-compose.yml` (so: on GitHub).
 - The app folders must be under `/opt` (mounted at the same path).
 - Files git manages are kept owned by the folder's owner, so `git pull` by hand still works.
 - The updater controls Docker through its socket (root-level access to this host), like any such tool. Its image is built from `updater/` in this repo.
