@@ -16,9 +16,10 @@ services:
       ups-monitor:      # so the apps can't reach each other - only nginx can
       iiq-responder:    # reach them (at http://<network name>:8080)
 
-  # Keeps every compose app on this server up to date by itself: every 15 minutes it
-  # pulls newer images (built by each repo's GitHub Actions) for the proxy, GAT,
-  # IIQ Responder, UPS Monitor, ... and recreates only containers whose image changed.
+  # Keeps every compose app on this server in step with GitHub: every 15 minutes it
+  # makes each app folder (a git checkout) match its repo - hand edits are put back -
+  # and pulls newer images built by GitHub Actions, recreating only what changed.
+  # Private repos: a read-only token in ./github-token (see README).
   updater:
     image: ghcr.io/opelikacstechdept/nignx-web-proxy/updater:latest
     container_name: updater

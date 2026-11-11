@@ -89,7 +89,7 @@ GoDaddy certificates last about a year. Check the end date with the `openssl x50
 | `nginx/docker-entrypoint.d/05-cert-watch.sh` | Reloads nginx when the certificate is replaced |
 | `nginx/Dockerfile` | Image based on `nginx:stable-alpine` |
 | `docker-compose.yml` | Runs the proxy and the updater on the server |
-| `updater/` | The updater image: keeps every compose app on the server up to date |
+| `updater/` | The updater image: keeps every compose app on the server in step with GitHub (config and images) |
 | `.github/workflows/build-proxy.yml` | Builds, tests (`nginx -t`) and pushes the image to GHCR |
 
 **Adding a site:** give the app its own network with an alias (below), copy `upsmonitor.conf` to `newsite.conf`, change `server_name` and the `set $app` line, add a DNS record, push. The wildcard certificate and the http→https redirect already cover any `*.opelikaschools.org` name.
@@ -134,24 +134,55 @@ docker network create iiq-responder
 - Each app's own login (GAT's Google sign-in, UPS Monitor's and IIQ Responder's passwords) passes straight through nginx, encrypted by https. GAT needs `GOOGLE_AUDIT_Web__BehindProxy=true` in its `.env` and `https://gat.opelikaschools.org/signin-google` as a redirect URI on its Google sign-in client.
 - **Adding an app:** give it its own standalone network with an alias in its compose file, add the network to `docker-compose.yml` here, and add a site file.
 
-## Automatic updates (updater)
+## Automatic updates — GitHub is the only source (updater)
 
-Nobody needs to run update commands on the server. The `updater` container (in `docker-compose.yml`) checks every 15 minutes:
+Nothing on the server is changed by hand. The `updater` container (in `docker-compose.yml`) checks every 15 minutes, for every running Docker Compose project (the proxy, GAT, IIQ Responder, UPS Monitor, iiq-assets, …):
 
-1. It finds every running Docker Compose project on the server — the proxy, GAT, IIQ Responder, UPS Monitor, iiq-assets, … — by the folder each was started from.
-2. It runs `docker compose pull` there, getting any newer image that the app's GitHub Actions published.
-3. It recreates **only** the containers whose image changed. Apps with nothing new aren't touched; on-demand services (e.g. GAT's console `tools` profile) aren't started.
+1. **Config from GitHub.** If the app's folder is a git checkout, it fetches the repo and makes the tracked files (`docker-compose.yml`, …) match GitHub exactly. **Hand edits to tracked files are put back** and logged. Untracked/ignored files — `.env`, `certs/`, `github-token`, reports — are never touched. If the config changed, the app is recreated with it.
+2. **Images from GitHub.** It pulls newer images built by each repo's GitHub Actions and recreates only containers whose image changed. Apps with nothing new aren't touched; on-demand services (e.g. GAT's `tools`) aren't started.
 
-It also updates the proxy and itself, and removes old unused images afterwards. Its log:
+It also updates the proxy and itself, and removes old unused images. Its log:
 
 ```bash
 docker logs updater
 ```
 
-- **Skip an app:** put its compose project name in `SKIP_PROJECTS` (e.g. `"iiq-assets"`) in `docker-compose.yml`.
-- **Check more or less often:** `INTERVAL` (seconds).
-- **Requirements:** the apps' folders are under `/opt` (mounted at the same path), and the server is logged in to ghcr.io (`docker login ghcr.io` as the user that runs `docker compose`; the updater reads that login from `~/.docker`).
-- **Changes to an app's `docker-compose.yml` itself** (ports, networks, …) aren't picked up automatically — only new images. Those are rare; apply them with `docker compose up -d` in the app's folder.
+To change anything — a port, a network, a setting in a compose file — change it on GitHub; the server follows within 15 minutes. Secrets stay in each app's `.env` on the server (never in GitHub).
+
+### One-time setup
+
+**1. A read-only GitHub token** (needed for the private repos). On GitHub: your profile → Settings → Developer settings → Personal access tokens → **Fine-grained tokens** → Generate: resource owner `opelikacstechdept`, the app repositories, permission **Contents: Read-only** (nothing else). Save it on the server:
+
+```bash
+printf '%s' 'PASTE-TOKEN-HERE' > /opt/nginx-proxy/github-token && chmod 600 /opt/nginx-proxy/github-token
+```
+
+**2. Make each app's folder a git checkout** of its repo (existing `.env` and other untracked files stay; tracked files are replaced by GitHub's). In each folder, with its repository:
+
+| Folder | Repository |
+| --- | --- |
+| `/opt/nginx-proxy` | `Nignx-Web-Proxy` |
+| GAT's folder | `Google-Drive-Audit` |
+| `/opt/iiq-responder` | `IIQ-Responder` |
+| UPS Monitor's folder | `UPS-Monitor` (usually a checkout already) |
+
+```bash
+REPO=IIQ-Responder   # the folder's repository
+git init -q -b main && git remote add origin https://github.com/opelikacstechdept/$REPO.git
+git -c http.https://github.com/.extraHeader="Authorization: Basic $(printf 'x-access-token:%s' "$(cat /opt/nginx-proxy/github-token)" | base64 -w0)" fetch -q origin main
+git reset -q --hard origin/main && git branch -q -u origin/main && git status --short
+docker compose up -d
+```
+
+(`git status` should list only untracked files such as `.env`.) Folders that aren't git checkouts still get new images, but not config from GitHub.
+
+**3. Start the updater:** `cd /opt/nginx-proxy && docker compose pull && docker compose up -d`, as the user that ran `docker login ghcr.io` (the updater reads that login from `~/.docker`).
+
+### Settings and notes
+
+- **Skip an app:** its compose project name in `SKIP_PROJECTS` (e.g. `"iiq-assets"`), **check more or less often:** `INTERVAL` (seconds) — both in `docker-compose.yml` (so: on GitHub).
+- The app folders must be under `/opt` (mounted at the same path).
+- Files git manages are kept owned by the folder's owner, so `git pull` by hand still works.
 - The updater controls Docker through its socket (root-level access to this host), like any such tool. Its image is built from `updater/` in this repo.
 
 ## Microsoft sign-in through the proxy (accounts)
