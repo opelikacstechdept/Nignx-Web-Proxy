@@ -129,7 +129,7 @@ Each app's own repository already sets this up in its `docker-compose.yml` (it j
 | UPS Monitor | [UPS-Monitor](https://github.com/opelikacstechdept/UPS-Monitor) | `ups-monitor` | `127.0.0.1:8084` |
 | IIQ Responder | [IIQ-Responder](https://github.com/opelikacstechdept/IIQ-Responder) | `iiq-responder` | `127.0.0.1:8082` |
 | iiQ Assets | [IIQ-Assets-Reports](https://github.com/opelikacstechdept/IIQ-Assets-Reports) | `iiq-assets` | `127.0.0.1:8083` |
-| Device Management Portal | [device-management-portal](https://github.com/opelikacstechdept/device-management-portal) | `device-portal` | `127.0.0.1:8085` |
+| Device Management Portal | [device-management-portal](https://github.com/opelikacstechdept/device-management-portal) | `proxy-net` (shared) | `127.0.0.1:8085` |
 
 Create the networks once on the server (UPS Monitor's `deploy/update.sh` also creates its own):
 
@@ -138,12 +138,11 @@ docker network create gat
 docker network create ups-monitor
 docker network create iiq-responder
 docker network create iiq-assets
-docker network create device-portal
 ```
 
 - UPS Monitor keeps its **syslog** port (`514/udp`) open to the network — the UPS cards send to it directly, not through nginx.
 - Each app's own login (GAT's Google sign-in, UPS Monitor's and IIQ Responder's passwords) passes straight through nginx, encrypted by https. GAT needs `GOOGLE_AUDIT_Web__BehindProxy=true` in its `.env` and `https://gat.opelikaschools.org/signin-google` as a redirect URI on its Google sign-in client.
-- **Adding an app:** give it its own standalone network with an alias in its compose file, add the network to `docker-compose.yml` here, and add a site file.
+- **Adding an app:** give it its own standalone network with an alias in its compose file, add the network to `docker-compose.yml` here, and add a site file. (Device Management Portal instead joins the shared `proxy-net` network nginx is already on - either pattern works, as long as nginx can resolve the app's container name.)
 
 ## Automatic updates — GitHub is the only source (updater)
 
