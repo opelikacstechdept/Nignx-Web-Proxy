@@ -9,6 +9,8 @@ The front end for the web apps on the Docker host **10.1.0.145**. nginx answers 
 | `https://upsmonitor.opelikaschools.org` | UPS Monitor, `ups-monitor:8080` | Entra ID (oauth2-proxy), UPS Monitor's own (`APP_USERNAME`/`APP_PASSWORD`) as fallback |
 | `https://iiqresponder.opelikaschools.org` | IIQ Responder, `iiq-responder:8080` | Entra ID (oauth2-proxy, shared with iiqassets), IIQ Responder's own (`App__Username`/`App__Password`) as fallback |
 | `https://iiqassets.opelikaschools.org` | iiQ Assets, `iiq-assets:8080` | Entra ID (oauth2-proxy, shared with iiqresponder), iiQ Assets' own (`App__Username`/`App__Password`) as fallback |
+| `https://devices.opelikaschools.org` | Device Management Portal, `device-portal:80` (image from [`device-management-portal`](https://github.com/opelikacstechdept/device-management-portal)) | Entra ID (oauth2-proxy, shared with upsmonitor/gat) |
+| `https://co-hyperv-svr2-bmc.opelikaschools.org` | CO-HYPERV-SVR2's BMC, direct to `10.11.1.74` (self-signed cert) | Entra ID (oauth2-proxy, shared with upsmonitor/gat), then the BMC's own login |
 | `http://10.1.0.145` or `:9000` | Status/test page served by nginx | none |
 
 - `http://` on any of these names redirects to `https://`. The old GAT address `http://10.1.0.145:8081` redirects to `https://gat.opelikaschools.org`.
@@ -86,6 +88,8 @@ GoDaddy certificates last about a year. Check the end date with the `openssl x50
 | `nginx/conf.d/upsmonitor.conf` | upsmonitor.opelikaschools.org → `ups-monitor:8080` |
 | `nginx/conf.d/iiqresponder.conf` | iiqresponder.opelikaschools.org → `iiq-responder:8080` |
 | `nginx/conf.d/iiqassets.conf` | iiqassets.opelikaschools.org → `iiq-assets:8080` |
+| `nginx/conf.d/devices.conf` | devices.opelikaschools.org → `device-portal:80` (landing page) |
+| `nginx/conf.d/co-hyperv-svr2-bmc.conf` | co-hyperv-svr2-bmc.opelikaschools.org → `10.11.1.74` (self-signed cert) |
 | `nginx/conf.d/status.conf` | Status/test page on 80 by IP and on 9000 |
 | `nginx/html/test/index.html` | The status/test page |
 | `nginx/docker-entrypoint.d/05-cert-watch.sh` | Reloads nginx when the certificate is replaced |
@@ -125,6 +129,7 @@ Each app's own repository already sets this up in its `docker-compose.yml` (it j
 | UPS Monitor | [UPS-Monitor](https://github.com/opelikacstechdept/UPS-Monitor) | `ups-monitor` | `127.0.0.1:8084` |
 | IIQ Responder | [IIQ-Responder](https://github.com/opelikacstechdept/IIQ-Responder) | `iiq-responder` | `127.0.0.1:8082` |
 | iiQ Assets | [IIQ-Assets-Reports](https://github.com/opelikacstechdept/IIQ-Assets-Reports) | `iiq-assets` | `127.0.0.1:8083` |
+| Device Management Portal | [device-management-portal](https://github.com/opelikacstechdept/device-management-portal) | `device-portal` | `127.0.0.1:8085` |
 
 Create the networks once on the server (UPS Monitor's `deploy/update.sh` also creates its own):
 
@@ -133,6 +138,7 @@ docker network create gat
 docker network create ups-monitor
 docker network create iiq-responder
 docker network create iiq-assets
+docker network create device-portal
 ```
 
 - UPS Monitor keeps its **syslog** port (`514/udp`) open to the network — the UPS cards send to it directly, not through nginx.
