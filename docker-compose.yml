@@ -19,8 +19,9 @@ services:
       # devices.opelikaschools.org -> device-portal joins the server's shared
       # proxy-net network (not its own network, unlike the apps above) - see
       # device-management-portal's docker-compose.yml. No new network needed
-      # here. co-hyperv-svr2-bmc.opelikaschools.org goes straight to 10.11.1.74,
-      # no network needed either.
+      # here. ocs-8600-7x05-78k1.opelikaschools.org (CO-HYPERV-SVR2's BMC,
+      # obfuscated hostname) goes straight to 10.11.1.74, no network needed
+      # either.
 
   # Keeps every compose app on this server in step with GitHub: every 15 minutes it
   # makes each app folder (a git checkout) match its repo - hand edits are put back -
@@ -61,4 +62,4 @@ networks:
 #   https://iiqresponder.opelikaschools.org       -> http://iiq-responder:8080  IIQ Responder's login
 #   https://iiqassets.opelikaschools.org          -> http://iiq-assets:8080     iiQ Assets' login
 #   https://devices.opelikaschools.org            -> http://device-portal:80    Entra ID
-#   https://co-hyperv-svr2-bmc.opelikaschools.org -> https://10.11.1.74         Entra ID, then the BMC's own login
+#   https://ocs-8600-7x05-78k1.opelikaschools.org -> https://10.11.1.74        Entra ID, then the BMC's own login
