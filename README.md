@@ -5,10 +5,10 @@ The front end for the web apps on the Docker host **10.1.0.145**. nginx answers 
 | Site | Goes to | Login |
 | --- | --- | --- |
 | `https://accounts.opelikaschools.org` | IIS server `10.11.1.69:443` | Microsoft sign-in (the site's own) |
-| `https://gat.opelikaschools.org` | GAT, `gat:8080` | GAT's own Google sign-in |
-| `https://upsmonitor.opelikaschools.org` | UPS Monitor, `ups-monitor:8080` | UPS Monitor's own (`APP_USERNAME`/`APP_PASSWORD`) |
-| `https://iiqresponder.opelikaschools.org` | IIQ Responder, `iiq-responder:8080` | IIQ Responder's own (`App__Username`/`App__Password`) |
-| `https://iiqassets.opelikaschools.org` | iiQ Assets, `iiq-assets:8080` | iiQ Assets' own (`App__Username`/`App__Password`) |
+| `https://gat.opelikaschools.org` | GAT, `gat:8080` | none (Google sign-in removed; anyone who can reach it uses it) |
+| `https://upsmonitor.opelikaschools.org` | UPS Monitor, `ups-monitor:8080` | Entra ID (oauth2-proxy), UPS Monitor's own (`APP_USERNAME`/`APP_PASSWORD`) as fallback |
+| `https://iiqresponder.opelikaschools.org` | IIQ Responder, `iiq-responder:8080` | Entra ID (oauth2-proxy, shared with iiqassets), IIQ Responder's own (`App__Username`/`App__Password`) as fallback |
+| `https://iiqassets.opelikaschools.org` | iiQ Assets, `iiq-assets:8080` | Entra ID (oauth2-proxy, shared with iiqresponder), iiQ Assets' own (`App__Username`/`App__Password`) as fallback |
 | `http://10.1.0.145` or `:9000` | Status/test page served by nginx | none |
 
 - `http://` on any of these names redirects to `https://`. The old GAT address `http://10.1.0.145:8081` redirects to `https://gat.opelikaschools.org`.
@@ -104,7 +104,7 @@ GoDaddy certificates last about a year. Check the end date with the `openssl x50
 
 ## GAT
 
-GAT signs people in with Google itself (it needs `https://`, which nginx provides). nginx adds no login of its own.
+GAT has no sign-in at all (`Web:AuthenticationMode=None`) - anyone who can reach `https://gat.opelikaschools.org` uses it. It previously used Google sign-in; that's been removed. nginx adds no login of its own here either.
 
 ## The apps' networks
 
