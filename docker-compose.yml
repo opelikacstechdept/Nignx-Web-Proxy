@@ -16,6 +16,8 @@ services:
       ups-monitor:      # so the apps can't reach each other - only nginx can
       iiq-responder:    # reach them (at http://<network name>:8080)
       iiq-assets:
+      device-portal:    # devices.opelikaschools.org landing page (http://device-portal:80)
+                        # co-hyperv-svr2-bmc.opelikaschools.org goes straight to 10.11.1.74, no network needed
 
   # Keeps every compose app on this server in step with GitHub: every 15 minutes it
   # makes each app folder (a git checkout) match its repo - hand edits are put back -
@@ -48,10 +50,14 @@ networks:
     external: true
   iiq-assets:
     external: true
+  device-portal:
+    external: true
 
 # Sites (each needs an internal DNS record pointing at this server):
-#   https://accounts.opelikaschools.org      -> IIS 10.11.1.69
-#   https://gat.opelikaschools.org           -> http://gat:8080            GAT's Google sign-in
-#   https://upsmonitor.opelikaschools.org    -> http://ups-monitor:8080    UPS Monitor's login
-#   https://iiqresponder.opelikaschools.org  -> http://iiq-responder:8080  IIQ Responder's login
-#   https://iiqassets.opelikaschools.org     -> http://iiq-assets:8080     iiQ Assets' login
+#   https://accounts.opelikaschools.org           -> IIS 10.11.1.69
+#   https://gat.opelikaschools.org                -> http://gat:8080            GAT's Google sign-in
+#   https://upsmonitor.opelikaschools.org         -> http://ups-monitor:8080    UPS Monitor's login
+#   https://iiqresponder.opelikaschools.org       -> http://iiq-responder:8080  IIQ Responder's login
+#   https://iiqassets.opelikaschools.org          -> http://iiq-assets:8080     iiQ Assets' login
+#   https://devices.opelikaschools.org            -> http://device-portal:80    Entra ID
+#   https://co-hyperv-svr2-bmc.opelikaschools.org -> https://10.11.1.74         Entra ID, then the BMC's own login
