@@ -11,6 +11,7 @@ The front end for the web apps on the Docker host **10.1.0.145**. nginx answers 
 | `https://iiqassets.opelikaschools.org` | iiQ Assets, `iiq-assets:8080` | Entra ID (oauth2-proxy, shared with iiqresponder), iiQ Assets' own (`App__Username`/`App__Password`) as fallback |
 | `https://devices.opelikaschools.org` | Device Management Portal, `device-portal:80` (image from [`device-management-portal`](https://github.com/opelikacstechdept/device-management-portal)) | Entra ID (oauth2-proxy, shared with upsmonitor/gat) |
 | `https://ocs-8600-7x05-78k1.opelikaschools.org` | CO-HYPERV-SVR2's BMC (obfuscated hostname: location-model-serial tail), direct to `10.11.1.74` (self-signed cert) | Entra ID (oauth2-proxy, shared with upsmonitor/gat), then the BMC's own login |
+| `https://oxidized.opelikaschools.org` | Oxidized config backup web UI, `oxidized:8888` | Entra ID (oauth2-proxy, shared with upsmonitor/gat/devices) - Oxidized has no login of its own |
 | `http://10.1.0.145` or `:9000` | Status/test page served by nginx | none |
 
 - `http://` on any of these names redirects to `https://`. The old GAT address `http://10.1.0.145:8081` redirects to `https://gat.opelikaschools.org`.
@@ -90,6 +91,7 @@ GoDaddy certificates last about a year. Check the end date with the `openssl x50
 | `nginx/conf.d/iiqassets.conf` | iiqassets.opelikaschools.org → `iiq-assets:8080` |
 | `nginx/conf.d/devices.conf` | devices.opelikaschools.org → `device-portal:80` (landing page) |
 | `nginx/conf.d/ocs-8600-7x05-78k1.conf` | ocs-8600-7x05-78k1.opelikaschools.org → `10.11.1.74` (self-signed cert) |
+| `nginx/conf.d/oxidized.conf` | oxidized.opelikaschools.org → `oxidized:8888` |
 | `nginx/conf.d/status.conf` | Status/test page on 80 by IP and on 9000 |
 | `nginx/html/test/index.html` | The status/test page |
 | `nginx/docker-entrypoint.d/05-cert-watch.sh` | Reloads nginx when the certificate is replaced |
